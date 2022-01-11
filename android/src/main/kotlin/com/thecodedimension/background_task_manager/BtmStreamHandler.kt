@@ -1,13 +1,25 @@
 package com.thecodedimension.background_task_manager
 
+import android.util.Log
 import io.flutter.plugin.common.EventChannel
 
-class BtmStreamHandler : EventChannel.StreamHandler{
+class BtmStreamHandler : EventChannel.StreamHandler {
+    private val TAG = "BtmStreamHandler"
+
+    private var eventSink: EventChannel.EventSink? = null
+
+    fun sendEvent(event: HashMap<String, String?>) {
+        Log.d(TAG, "sendEvent: $event")
+        eventSink?.success(event)
+    }
+
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-        TODO("Not yet implemented")
+        eventSink = events
     }
 
     override fun onCancel(arguments: Any?) {
-        TODO("Not yet implemented")
+        Log.d(TAG, "onCancel: args : $arguments")
+        eventSink?.endOfStream()
+        eventSink = null
     }
 }
