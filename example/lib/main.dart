@@ -22,15 +22,22 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late BtmTask task;
   late Future future;
+
   @override
   void initState() {
-    future = BackgroundTaskManager().init(tasks: {});
+    future = BackgroundTaskManager().init(
+        modelMap: BtmModelMap.mapper()
+            .addModel<TestObject>(
+              type: "test",
+              converter: (map) => TestObject.fromMap(map),
+            )
+            .buildMap());
+
     task = BtmTask<TestObject>(
       taskId: "001",
-      args: TestObject(data: "I AM ARGUMENTS"),
       type: "test",
+      args: TestObject(data: "I AM ARGUMENTS"),
       handle: testHandle,
-      converter: (map) => TestObject.fromMap(map),
     );
     debugPrint("relaunch debug main app init");
     super.initState();
@@ -109,7 +116,6 @@ Future<void> testHandle(Object args) async {
       BackgroundTaskManager.postEvent(args: TestObject(data: "args : $serializedArgs, count : $i").toJson());
       await Future.delayed(const Duration(seconds: 1));
       i--;
-      // if (i == 6) throw Exception("i is equal to 6");
       return i > 0;
     });
     BackgroundTaskManager.postEvent(args: TestObject(data: "args : $serializedArgs, count : $i").toJson());

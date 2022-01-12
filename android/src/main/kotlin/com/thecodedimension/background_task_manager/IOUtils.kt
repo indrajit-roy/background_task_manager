@@ -27,6 +27,24 @@ object IOUtils {
         prefs?.edit()?.putString(workId, taskId)?.apply();
     }
 
+    fun setTaskInfo(workId: String, taskId: String, taskType: String) {
+        if (ContextHolder.getApplicationContext() == null) return;
+        val prefs =
+            ContextHolder.getApplicationContext()?.getSharedPreferences(Constants.Strings.SHARED_PREFERENCES_KEY, 0)
+        val set = mutableSetOf<String>(taskId, taskType)
+        Log.d(TAG, "setTaskInfo: $set")
+        prefs?.edit()?.putStringSet(workId, set)?.apply();
+    }
+
+    fun getTaskInfo(workId: String): MutableSet<String>? {
+        if (ContextHolder.getApplicationContext() == null) return null;
+        val prefs =
+            ContextHolder.getApplicationContext()?.getSharedPreferences(Constants.Strings.SHARED_PREFERENCES_KEY, 0)
+        val info = prefs?.getStringSet(workId, setOf())
+        return if (info?.isEmpty() == true) null else info
+    }
+
+
     fun getTaskId(workId: String): String? {
         if (ContextHolder.getApplicationContext() == null) return null;
         val prefs =

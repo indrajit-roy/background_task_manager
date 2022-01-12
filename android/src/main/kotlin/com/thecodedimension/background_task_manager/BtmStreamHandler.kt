@@ -9,7 +9,7 @@ class BtmStreamHandler : EventChannel.StreamHandler {
     private var eventSink: EventChannel.EventSink? = null
 
     fun sendEvent(event: HashMap<String, String?>) {
-        Log.d(TAG, "sendEvent: $event")
+        Log.d(TAG, "eventSink= $eventSink, sendEvent: $event")
         eventSink?.success(event)
     }
 
