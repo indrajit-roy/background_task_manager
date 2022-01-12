@@ -6,7 +6,9 @@ import 'package:background_task_manager/interfaces/background_task_i.dart';
 import 'package:flutter/material.dart';
 
 void main() {
+  debugPrint("relaunch debug main");
   WidgetsFlutterBinding.ensureInitialized();
+  debugPrint("relaunch debug main binding init");
   runApp(const MyApp());
 }
 
@@ -19,40 +21,60 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late BtmTask task;
+  late Future future;
   @override
   void initState() {
+    future = BackgroundTaskManager().init(tasks: {});
     task = BtmTask<TestObject>(
+      taskId: "001",
       args: TestObject(data: "I AM ARGUMENTS"),
       type: "test",
       handle: testHandle,
       converter: (map) => TestObject.fromMap(map),
     );
+    debugPrint("relaunch debug main app init");
     super.initState();
   }
 
   @override
+  void dispose() {
+    BackgroundTaskManager.singleton.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    debugPrint("relaunch debug, app build");
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: Center(
-            child: Column(
-          children: [
-            StreamBuilder(
-              initialData: "No work is Queued",
-              stream: BackgroundTaskManager(tasks: {}).getEventStreamFor(task.taskId),
-              builder: (context, snapshot) => Text("${snapshot.data}"),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-                onPressed: () {
-                  BackgroundTaskManager.singleton?.executeTask(task);
-                },
-                child: const Text("Start Task"))
-          ],
-        )),
+        body: FutureBuilder(
+            future: future,
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+              return Center(
+                  child: Column(
+                children: [
+                  StreamBuilder(
+                    initialData: "No work is Queued",
+                    stream: BackgroundTaskManager.singleton.getEventStreamFor(task.taskId),
+                    builder: (context, snapshot) => Text("${snapshot.data}"),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                      onPressed: () {
+                        BackgroundTaskManager.singleton.executeTask(task);
+                      },
+                      child: const Text("Start Task"))
+                ],
+              ));
+            }),
       ),
     );
   }
@@ -79,7 +101,7 @@ class TestObject extends BackgroundEvent {
 Future<void> testHandle(Object args) async {
   TestObject? serializedArgs;
   if (args is String) serializedArgs = TestObject.fromJson(args);
-  var i = 10;
+  var i = 12;
   try {
     await Future.doWhile(() async {
       debugPrint("Executing testHandle $i");

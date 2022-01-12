@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -45,22 +44,20 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   static postFailure({String? exceptionMessage}) => _bgMethodChannel.invokeMethod("failed", exceptionMessage);
   static postEvent({String? args}) => _bgMethodChannel.invokeMethod("sendEvent", args);
 
-  BackgroundTaskManager._(Map<String, BtmTask>? tasks) : _registeredTasks = tasks ?? {} {
-    _eventStream = _eventChannel.receiveBroadcastStream();
-  }
-
+  BackgroundTaskManager._() : _internalEventStream = StreamController.broadcast();
+  factory BackgroundTaskManager() => _instance ??= BackgroundTaskManager._();
   static BackgroundTaskManager? _instance;
-  static BackgroundTaskManager? get singleton => _instance;
-  static Map<Type, Function> _converterMap = {};
+  static BackgroundTaskManager get singleton => _instance ??= BackgroundTaskManager();
+  // static Map<Type, Function> _converterMap = {};
   // taskId : BtmTask
-  final Map<String, BtmTask> _registeredTasks;
+  late final Map<String, BtmTask> _registeredTasks;
 
-  factory BackgroundTaskManager({Map<String, BtmTask>? tasks = const {}}) => _instance ??= BackgroundTaskManager._(tasks);
-
-  late Stream _eventStream;
+  Stream? _eventStream;
+  final StreamController _internalEventStream;
+  StreamSubscription? _streamSubscription;
 
   @override
-  Stream get eventStream => _eventStream;
+  Stream get eventStream => _eventStream ??= _eventChannel.receiveBroadcastStream();
 
   @override
   Stream<T> getEventStream<T extends BackgroundEvent>() {
@@ -69,7 +66,21 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
 
   @override
   Stream getEventStreamFor(String taskId) {
-    return eventStream.where((event) => event["taskId"] == taskId).map((event) => _registeredTasks[taskId]?.converter(json.decode(event["event"])));
+    try {
+      return eventStream.where((event) {
+        debugPrint("getEventStreamFor, raw event=$event");
+        return event["taskId"] == taskId;
+      }).map((event) {
+        debugPrint("getEventStreamFor $taskId, raw event=$event");
+        return _registeredTasks[taskId]?.converter(json.decode(event["event"])) ?? event;
+      });
+    } on Exception catch (e) {
+      debugPrint("getEventStreamFor exception $e");
+      return eventStream;
+    } on Error catch (e) {
+      debugPrint("getEventStreamFor error $e");
+      return eventStream;
+    }
   }
 
   @override
@@ -91,17 +102,20 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   }
 
   @override
-  Future<bool> isServiceRunning() {
-    throw UnimplementedError();
+  Future<void> init({Map<String, BtmTask>? tasks}) async {
+    _registeredTasks = tasks ?? {};
+    final initValue = await _methodChannel.invokeMethod("initialize");
+    debugPrint("BackgroundTaskManager init $initValue");
+    _eventStream ??= _eventChannel.receiveBroadcastStream();
+    _streamSubscription = _eventStream?.listen((event) {
+      _internalEventStream.add(event);
+    });
   }
 
   @override
-  Future<void> startForegroundService() {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<void> stopForegroundService() {
-    throw UnimplementedError();
+  void dispose() {
+    _streamSubscription?.cancel();
+    _internalEventStream.close();
+    _streamSubscription = null;
   }
 }

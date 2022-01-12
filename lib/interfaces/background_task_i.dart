@@ -24,10 +24,13 @@ abstract class BackgroundTaskInterface {
   Stream getEventStreamFor(String taskId);
   Stream<T> getEventStream<T extends BackgroundEvent>();
 
+  Future<void> init();
+  void dispose();
+
   Future<void> executeTask<T extends BackgroundEvent>(BtmTask<T> task);
-  Future<bool> isServiceRunning();
-  Future<void> startForegroundService();
-  Future<void> stopForegroundService();
+  // Future<bool> isServiceRunning();
+  // Future<void> startForegroundService();
+  // Future<void> stopForegroundService();
 }
 
 class BackgroundTaskEvent {}

@@ -79,39 +79,7 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         }
         Log.d(TAG, "doWork: Attempt to call callback")
         withContext(Dispatchers.Main) {
-            backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to args), object : MethodChannel.Result {
-                override fun success(result: Any?) {
-                    Log.d(TAG, "doWork: task success")
-                    if (completer.isActive)
-                        completer.complete(
-                            Result.success(
-                                Data.Builder().putString("test", result as String).build()
-                            )
-                        )
-                }
-
-                override fun error(errorCode: String?, errorMessage: String?, errorDetails: Any?) {
-                    Log.d(TAG, "doWork: task error")
-                    if (completer.isActive)
-                        completer.complete(
-                            Result.failure(
-                                Data.Builder().putString("test", "test failure : $errorCode, $errorMessage, $errorDetails").build()
-                            )
-                        )
-                }
-
-                override fun notImplemented() {
-                    Log.d(TAG, "doWork: task not implemented")
-                    if (completer.isActive)
-                        completer.complete(
-                            Result.failure(
-                                Data.Builder()
-                                    .putString("test", "test failure internal. Method not implemented. Check hardcoded / constant method call names")
-                                    .build()
-                            )
-                        )
-                }
-            })
+            backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to args), resultHandler)
         }
         val output = completer.await()
         withContext(Dispatchers.Main) {
@@ -156,11 +124,46 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
                     val dartCallback =
                         DartExecutor.DartCallback(assets, appBundlePath, flutterCallback)
                     executor.executeDartCallback(dartCallback)
+                    isCallbackDispatcherReady.set(true)
                     flutterEngineCompleter.complete(Unit)
                 }
             }
         }
         mainHandler.post(myRunnable)
+    }
+
+    private val resultHandler = object : MethodChannel.Result {
+        override fun success(result: Any?) {
+            Log.d(TAG, "doWork: task success")
+            if (completer.isActive)
+                completer.complete(
+                    Result.success(
+                        Data.Builder().putString("test", result as String).build()
+                    )
+                )
+        }
+
+        override fun error(errorCode: String?, errorMessage: String?, errorDetails: Any?) {
+            Log.d(TAG, "doWork: task error")
+            if (completer.isActive)
+                completer.complete(
+                    Result.failure(
+                        Data.Builder().putString("test", "test failure : $errorCode, $errorMessage, $errorDetails").build()
+                    )
+                )
+        }
+
+        override fun notImplemented() {
+            Log.d(TAG, "doWork: task not implemented")
+            if (completer.isActive)
+                completer.complete(
+                    Result.failure(
+                        Data.Builder()
+                            .putString("test", "test failure internal. Method not implemented. Check hardcoded / constant method call names")
+                            .build()
+                    )
+                )
+        }
     }
 }
 

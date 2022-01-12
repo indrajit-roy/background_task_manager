@@ -2,7 +2,7 @@ package com.thecodedimension.background_task_manager
 
 import android.util.Log
 
-object IOUtilts {
+object IOUtils {
 
     private const val TAG = "IOUtilts"
 

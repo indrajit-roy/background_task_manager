@@ -13,6 +13,10 @@ class BtmStreamHandler : EventChannel.StreamHandler {
         eventSink?.success(event)
     }
 
+    fun dispose() {
+
+    }
+
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
     }

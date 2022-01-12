@@ -3,6 +3,7 @@ package com.thecodedimension.background_task_manager
 import android.content.Context
 import android.util.Log
 import androidx.annotation.NonNull
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import androidx.work.*
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -24,8 +25,8 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     private lateinit var eventChannel: EventChannel
     private lateinit var methodCallHandler: MethodChannel.MethodCallHandler
     val streamHandler = BtmStreamHandler()
-    private val lifecycleOwner = CustomLifeCycleOwner()
     lateinit var workManager: WorkManager
+    private var liveData: LiveData<MutableList<WorkInfo>>? = null
 
     private val mainScope = CoroutineScope(Dispatchers.Main)
 
@@ -38,50 +39,15 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
         eventChannel.setStreamHandler(streamHandler)
         workManager = WorkManager.getInstance(context)
         methodCallHandler = BtmMethodCallHandler(workManager = workManager)
-        lifecycleOwner.startListening()
-        mainScope.launch {
-            withContext(Dispatchers.Default) {
-                val infos = workManager.getWorkInfosForUniqueWork("testWork").await()
-                val finishedWorkList = infos.filter {
-                    it.state.isFinished
-                }.toMutableList()
-                withContext(Dispatchers.Main) {
-                    workManager.getWorkInfosForUniqueWorkLiveData("testWork").observe(lifecycleOwner, Observer<MutableList<WorkInfo?>>() {
-                        it.removeAll {
-                            finishedWorkList.any { finishedInfo ->
-                                finishedInfo.id == it?.id
-                            }
-                        }
-                        Log.d(TAG, "onAttachedToEngine: filtered Infos : $it")
-                        it.forEach { info ->
-                            if (info?.state?.isFinished == true) {
-                                val data = info.outputData.getString("test")
-                                streamHandler.sendEvent(
-                                    hashMapOf(
-                                        "taskId" to IOUtilts.getTaskId(info.id.toString()),
-                                        "event" to data
-                                    )
-                                )
-                                finishedWorkList.add(info)
-                            } else {
-                                val progress = info?.progress?.getString("test")
-                                if (progress != null)
-                                    streamHandler.sendEvent(
-                                        hashMapOf(
-                                            "taskId" to IOUtilts.getTaskId(info.id.toString()),
-                                            "event" to progress
-                                        )
-                                    )
-                            }
-                        }
-                    })
-                }
-            }
-        }
+        liveData = workManager.getWorkInfosLiveData(
+            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING)).build()
+        )
+        liveData?.observeForever(runningTasksObserver)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "initialize" -> result.success("Success")
             "executeTask" -> {
                 try {
                     val taskId = (call.arguments as Map<*, *>)["taskId"] as String
@@ -97,16 +63,13 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                                 .build()
                         ).build()
                     val op = workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
-                    op.state.observe(lifecycleOwner, Observer {
-                        Log.e(TAG, "Worker State : $it")
-                    });
 
                     mainScope.launch {
                         withContext(Dispatchers.IO) {
                             val output = op.result.await()
                             Log.d(TAG, "onMethodCall: WORKER RESULT $output")
                             withContext(Dispatchers.Main) {
-                                IOUtilts.setTaskId(oneTimeWorkRequest.id.toString(), taskId)
+                                IOUtils.setTaskId(oneTimeWorkRequest.id.toString(), taskId)
                                 result.success("Success from await $taskId ${oneTimeWorkRequest.id.toString()}")
                             }
                         }
@@ -122,8 +85,22 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+        liveData?.removeObserver(runningTasksObserver)
         channel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        lifecycleOwner.stopListening()
+    }
+
+    private val runningTasksObserver = Observer<MutableList<WorkInfo>>() {
+        Log.d(TAG, "runningTasksObserver : filtered Infos Size : ${it.size}")
+        it.forEach { info ->
+            val progress = info.progress.getString("test")
+            if (progress != null)
+                streamHandler.sendEvent(
+                    hashMapOf(
+                        "taskId" to IOUtils.getTaskId(info.id.toString()),
+                        "event" to progress
+                    )
+                )
+        }
     }
 }
