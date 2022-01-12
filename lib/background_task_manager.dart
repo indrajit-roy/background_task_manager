@@ -57,7 +57,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   StreamSubscription? _streamSubscription;
 
   @override
-  Stream get eventStream => _eventStream ??= _eventChannel.receiveBroadcastStream();
+  Stream get eventStream => _internalEventStream.stream;
 
   @override
   Stream<T> getEventStream<T extends BackgroundEvent>() {
