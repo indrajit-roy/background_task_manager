@@ -64,7 +64,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
 
   @override
   Stream<T> getEventStream<T extends BackgroundEvent>() {
-    throw UnimplementedError();
+    return eventStream.where((event) => _modelMap?.getTypeKey<T>() != null).map<T>((event) => _modelMap!.getObject<T>(map: event["event"]));
   }
 
   @override
@@ -99,6 +99,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
       taskToType[task.taskId] = task.type;
       final result = await _methodChannel.invokeMethod("executeTask", {
         "taskId": task.taskId,
+        "tag": task.tag,
         "type": task.type,
         "callbackHandle": PluginUtilities.getCallbackHandle(_callbackDispatcher)?.toRawHandle(),
         "taskHandle": PluginUtilities.getCallbackHandle(task.handle)?.toRawHandle(),
@@ -107,6 +108,21 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
       debugPrint("executeTask success $result");
     } on Exception catch (e) {
       debugPrint("executeTask Exception $e");
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<BtmTask<BackgroundEvent>>> getTasksWithStatus({required BtmTaskStatus status}) async {
+    try {
+      final taskIds = await _methodChannel.invokeMethod("getTasksByStatus", status.name);
+      if (taskIds is List<String>) {
+        // TODO : Retrieve task info from cache and map Ids to Tasks
+        return taskIds.map((e) => BtmTask(type: "type", handle: (obj) async {})).toList();
+      }
+      return <BtmTask<BackgroundEvent>>[];
+    } on Exception catch (e) {
+      debugPrint("BackgroundTaskManager getTasksWithStatus exception $e");
       rethrow;
     }
   }

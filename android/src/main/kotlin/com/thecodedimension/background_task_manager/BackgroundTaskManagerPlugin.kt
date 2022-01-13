@@ -12,9 +12,15 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
+val workStateMap = mapOf<String, WorkInfo.State>(
+    "RUNNING" to WorkInfo.State.RUNNING,
+    "ENQUEUED" to WorkInfo.State.ENQUEUED,
+    "BLOCKED" to WorkInfo.State.BLOCKED,
+    "CANCELLED" to WorkInfo.State.CANCELLED,
+    "FAILED" to WorkInfo.State.FAILED,
+    "SUCCEEDED" to WorkInfo.State.SUCCEEDED
+)
 
 /** BackgroundTaskManagerPlugin */
 class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -50,6 +56,20 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
             "initialize" -> {
                 result.success(true)
             }
+            "getTasksByStatus" -> {
+                val status = (call.arguments as Map<*, *>)["status"] as String?
+                if (status == null)
+                    result.error("300", "Status passed from app was null", "")
+
+                workManager.getWorkInfos(WorkQuery.Builder.fromStates(listOf(workStateMap[status])).build()).also {
+                    it.addListener({
+                        val taskIdList = it.get().map { info ->
+                            IOUtils.getTaskInfo(info.id.toString())
+                        }
+                        result.success(taskIdList)
+                    }, { command -> command.run() })
+                }
+            }
             "executeTask" -> {
                 try {
                     val taskId = (call.arguments as Map<*, *>)["taskId"] as String
@@ -67,19 +87,13 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                                 .build()
                         ).build()
                     val op = workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
-
-                    mainScope.launch {
-                        withContext(Dispatchers.IO) {
-                            val output = op.result.await()
-                            Log.d(TAG, "onMethodCall: WORKER RESULT $output")
-                            withContext(Dispatchers.Main) {
-//                                IOUtils.setTaskId(oneTimeWorkRequest.id.toString(), taskId)
-                                IOUtils.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId, type)
-
-                                result.success("Success from await $taskId ${oneTimeWorkRequest.id.toString()}")
-                            }
-                        }
+                    val output = op.result.also {
+                        it.addListener({
+                            IOUtils.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId, type)
+                            result.success("Success from await $taskId ${oneTimeWorkRequest.id}")
+                        }, { command -> command?.run() })
                     }
+
                 } catch (e: Error) {
                     result.error("", "An Error occurred. Task could not be Queued", "$e")
                 } catch (e: Exception) {
