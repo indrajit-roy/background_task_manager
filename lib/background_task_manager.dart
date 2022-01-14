@@ -52,7 +52,8 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   bool _isPlatformInitialized = false;
   bool get isInitialized => _isPlatformInitialized && _eventStream != null;
 
-  BtmModelMap? _modelMap;
+  late final BtmModelMap _modelMap;
+  BtmModelMap get modelMap => _modelMap;
   Map<String, String> taskToType = {};
 
   Stream? _eventStream;
@@ -64,7 +65,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
 
   @override
   Stream<T> getEventStream<T extends BackgroundEvent>() {
-    return eventStream.where((event) => _modelMap?.getTypeKey<T>() != null).map<T>((event) => _modelMap!.getObject<T>(map: event["event"]));
+    return eventStream.where((event) => _modelMap.getTypeKey<T>() != null).map<T>((event) => _modelMap.getObject<T>(map: event["event"]));
   }
 
   @override
@@ -76,7 +77,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
       }).map((event) {
         debugPrint("getEventStreamFor $taskId, eventType=${event["event"].runtimeType} modelMap : $_modelMap");
         if (event["type"] != null && event["event"] is String) {
-          final model = _modelMap?.getModelFromMap(type: event["type"], map: json.decode(event["event"]));
+          final model = _modelMap.getObjectFromKey(type: event["type"], map: json.decode(event["event"]));
           debugPrint("getEventStreamFor model : $model of type ${model.runtimeType}");
           return model;
         } else {
@@ -115,10 +116,11 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   @override
   Future<List<BtmTask<BackgroundEvent>>> getTasksWithStatus({required BtmTaskStatus status}) async {
     try {
-      final taskIds = await _methodChannel.invokeMethod("getTasksByStatus", status.name);
-      if (taskIds is List<String>) {
+      final taskIds = await _methodChannel.invokeMethod("getTasksByStatus", {"status": status.name});
+      debugPrint("getTasksWithStatus got $taskIds of type : ${taskIds.runtimeType}");
+      if (taskIds is List) {
         // TODO : Retrieve task info from cache and map Ids to Tasks
-        return taskIds.map((e) => BtmTask(type: "type", handle: (obj) async {})).toList();
+        return taskIds.map((e) => BtmTask(taskId: e, type: "type", handle: (obj) async {})).toList();
       }
       return <BtmTask<BackgroundEvent>>[];
     } on Exception catch (e) {
@@ -131,7 +133,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   Future<void> init({BtmModelMap? modelMap}) async {
     try {
       debugPrint("BackgroundTaskManager init start");
-      _modelMap = modelMap;
+      _modelMap = modelMap ??= BtmModelMap.empty();
       final initValue = await _methodChannel.invokeMethod("initialize");
       _isPlatformInitialized = initValue;
       debugPrint("BackgroundTaskManager init $initValue");

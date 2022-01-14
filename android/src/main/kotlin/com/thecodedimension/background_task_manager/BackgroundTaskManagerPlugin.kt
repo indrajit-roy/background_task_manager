@@ -64,7 +64,11 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                 workManager.getWorkInfos(WorkQuery.Builder.fromStates(listOf(workStateMap[status])).build()).also {
                     it.addListener({
                         val taskIdList = it.get().map { info ->
-                            IOUtils.getTaskInfo(info.id.toString())
+                            val taskInfo = IOUtils.getTaskInfo(info.id.toString())
+                            if (taskInfo == null)
+                                null
+                            else
+                                taskInfo["taskId"]
                         }
                         result.success(taskIdList)
                     }, { command -> command.run() })
@@ -117,12 +121,11 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
             if (progress != null) {
                 val taskInfo = IOUtils.getTaskInfo(info.id.toString())
                 Log.d(TAG, "taskInfo : $taskInfo")
-                val list = taskInfo?.toList()
-                Log.d(TAG, "taskInfo List : $list")
+                if (taskInfo == null) return@forEach
                 streamHandler.sendEvent(
                     hashMapOf(
-                        "taskId" to list?.get(0),
-                        "type" to list?.get(1),
+                        "taskId" to taskInfo["taskId"],
+                        "type" to taskInfo["taskType"],
                         "event" to progress
                     )
                 )

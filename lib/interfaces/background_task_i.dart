@@ -55,14 +55,11 @@ class BtmModelMap {
   final Map<String, Type> map;
   final Map<Type, Function(Map<Object?, Object?>)> converterMap;
   BtmModelMap._internal(this.map, this.converterMap);
+  BtmModelMap.empty()
+      : map = {},
+        converterMap = {};
 
   static BtmModelMapper mapper() => BtmModelMapper();
-
-  Object? getModelFromMap({required String type, required Map<Object?, Object?> map}) {
-    if (this.map[type] == null) return null;
-    final converterFunction = converterMap[this.map[type]];
-    return converterFunction?.call(map);
-  }
 
   String? getTypeKey<T>() {
     try {
@@ -71,6 +68,14 @@ class BtmModelMap {
       debugPrint("getTypeKey not found $e");
       return null;
     }
+  }
+
+  Type? getType(String key) => map[key];
+
+  Object? getObjectFromKey({required String type, required Map<Object?, Object?> map}) {
+    if (this.map[type] == null) return null;
+    final converterFunction = converterMap[this.map[type]];
+    return converterFunction?.call(map);
   }
 
   T getObject<T>({required Map<Object?, Object?> map}) {
@@ -99,6 +104,7 @@ class BtmModelMapper {
 }
 
 abstract class BackgroundEvent {
+  const BackgroundEvent();
   Map<Object?, Object?> toMap();
   String toJson() => json.encode(toMap());
 }
