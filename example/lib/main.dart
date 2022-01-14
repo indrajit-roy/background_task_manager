@@ -39,21 +39,23 @@ class _MyAppState extends State<MyApp> {
   String? id;
   final status = BtmTaskStatus.RUNNING;
   bool isInit = false;
+  final streamC = StreamController.broadcast();
 
   Future<void> init() async {
-    future = BackgroundTaskManager().init(
-        modelMap: BtmModelMap.mapper()
-            .addModel<TestObject>(
-              type: "test",
-              converter: (map) => TestObject.fromMap(map),
-            )
-            .buildMap());
+    future = BackgroundTaskManager.singleton.init();
     await future;
     try {
       final t = await BackgroundTaskManager.singleton.getTasksWithStatus(status: status);
       tasksByStatus = t.toString();
       if (t.isNotEmpty) {
         id = t.first.taskId;
+        BackgroundTaskManager.singleton.getEventStreamFor(id!).listen((event) {
+          streamC.add(event);
+        });
+        BackgroundTaskManager.singleton.getResultStreamFor(id!).listen((event) {
+          debugPrint("result stream $event");
+          streamC.add(event);
+        });
       }
     } on Exception catch (e) {
       tasksByStatus = e.toString();
@@ -67,9 +69,8 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void initState() {
-    task = BtmTask<TestObject>(
-      type: "test",
-      args: TestObject(data: "I AM ARGUMENTS"),
+    task = BtmTask(
+      args: "I AM ARGUMENTS",
       handle: testHandle,
     );
     debugPrint("relaunch debug main app init");
@@ -80,6 +81,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     BackgroundTaskManager.singleton.dispose();
+    streamC.close();
     super.dispose();
   }
 
@@ -105,13 +107,16 @@ class _MyAppState extends State<MyApp> {
                 if (id != null)
                   StreamBuilder(
                     initialData: "No work is Queued",
-                    stream: BackgroundTaskManager.singleton.getEventStreamFor(id!),
+                    stream: streamC.stream,
                     builder: (context, snapshot) => Text("${snapshot.data}"),
                   ),
                 const SizedBox(height: 24),
                 ElevatedButton(
-                    onPressed: () {
-                      BackgroundTaskManager.singleton.executeTask(task);
+                    onPressed: () async {
+                      await BackgroundTaskManager.singleton.executeTask(task);
+                      setState(() {
+                        isInit = false;
+                      });
                     },
                     child: const Text("Start Task"))
               ],
@@ -121,41 +126,30 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-class TestObject extends BackgroundEvent {
-  String? data;
-
-  TestObject({
-    this.data,
-  });
-
-  factory TestObject.fromMap(Map<Object?, Object?> map) => TestObject(data: map["data"] is String ? map["data"] as String : null);
-  factory TestObject.fromJson(String str) => TestObject.fromMap(json.decode(str));
-  @override
-  Map<Object?, Object?> toMap() {
-    return {"data": data};
-  }
-
-  @override
-  String toString() => 'TestObject(data: $data)';
-}
-
 Future<void> testHandle(Object args) async {
-  TestObject? serializedArgs;
-  if (args is String) serializedArgs = TestObject.fromJson(args);
+  debugPrint("testHandle args : $args");
   var i = 12;
   try {
     await Future.doWhile(() async {
       debugPrint("Executing testHandle $i");
 
-      BackgroundTaskManager.postEvent(args: TestObject(data: "args : $serializedArgs, count : $i").toJson());
+      BackgroundTaskManager.postEvent(args: {
+        "stringKey": StringDataField(value: "StringValue"),
+        "intKey": IntegerDataField(value: i),
+        "doubleKey": DoubleDataField(value: i - .5)
+      });
       await Future.delayed(const Duration(seconds: 1));
       i--;
       return i > 0;
     });
-    BackgroundTaskManager.postEvent(args: TestObject(data: "args : $serializedArgs, count : $i").toJson());
+    BackgroundTaskManager.postEvent(args: {
+      "stringKey": StringDataField(value: "StringValue"),
+      "intKey": IntegerDataField(value: i),
+      "doubleKey": DoubleDataField(value: i - .5)
+    });
     debugPrint("Executing testHandle SUCCESS $i");
   } on Exception catch (e) {
     debugPrint("Executing testHandle FAILURE $i");
-    throw e;
+    throw e.toString();
   }
 }

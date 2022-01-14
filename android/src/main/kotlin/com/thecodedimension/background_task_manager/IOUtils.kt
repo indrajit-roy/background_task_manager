@@ -27,13 +27,12 @@ object IOUtils {
         prefs?.edit()?.putString(workId, taskId)?.apply();
     }
 
-    fun setTaskInfo(workId: String, taskId: String, taskType: String) {
+    fun setTaskInfo(workId: String, taskId: String,) {
         if (ContextHolder.getApplicationContext() == null) return;
         val taskPrefs =
             ContextHolder.getApplicationContext()?.getSharedPreferences(Constants.Strings.SHARED_PREFS_KEY_TASKID, 0)
         val typePrefs = ContextHolder.getApplicationContext()?.getSharedPreferences(Constants.Strings.SHARED_PREFS_KEY_TYPE, 0)
         taskPrefs?.edit()?.putString(workId, taskId)?.apply()
-        typePrefs?.edit()?.putString(workId, taskType)?.apply()
     }
 
     fun getTaskInfo(workId: String): HashMap<String, String?>? {

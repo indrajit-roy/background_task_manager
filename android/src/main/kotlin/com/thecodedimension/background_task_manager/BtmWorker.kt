@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -40,12 +41,69 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         return !isCallbackDispatcherReady.get()
     }
 
+    private fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
+        if (entry.value is HashMap<*, *>) {
+            return when ((entry.value as HashMap<*, *>)["platformKey"]) {
+                "String" -> {
+                    dataBuilder.putString(entry.key as String, (entry.value as HashMap<*, *>)["value"] as String)
+                    dataBuilder
+                }
+                "int" -> {
+                    dataBuilder.putInt(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Int)
+                    dataBuilder
+                }
+                "double" -> {
+                    dataBuilder.putDouble(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Double)
+                    dataBuilder
+                }
+                "bool" -> {
+                    dataBuilder.putBoolean(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Boolean)
+                    dataBuilder
+                }
+                "List<String>" -> {
+                    dataBuilder.putStringArray(
+                        entry.key as String,
+                        ((entry.value as HashMap<*, *>)["value"] as List<String>).toTypedArray()
+                    )
+                    dataBuilder
+                }
+                "List<double>" -> {
+                    dataBuilder.putDoubleArray(
+                        entry.key as String,
+                        ((entry.value as HashMap<*, *>)["value"] as List<Double>).toDoubleArray()
+                    )
+                    dataBuilder
+                }
+                "List<int>" -> {
+                    dataBuilder.putIntArray(
+                        entry.key as String,
+                        ((entry.value as HashMap<*, *>)["value"] as List<Int>).toIntArray()
+                    )
+                    dataBuilder
+                }
+                "List<bool>" -> {
+                    dataBuilder.putBooleanArray(
+                        entry.key as String,
+                        ((entry.value as HashMap<*, *>)["value"] as List<Boolean>).toBooleanArray()
+                    )
+                    dataBuilder
+                }
+                else -> dataBuilder
+            }
+        } else return dataBuilder;
+    }
+
     inner class MethodCallHandler : MethodChannel.MethodCallHandler {
         override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
             when (call.method) {
                 "sendEvent" -> {
-                    Log.d(TAG, "onMethodCall: sendEvent ${call.arguments}")
-                    setProgressAsync(Data.Builder().putString("test", call.arguments as String).build())
+                    Log.d(TAG, "onMethodCall: sendEvent ${call.arguments} of type ${call.arguments.javaClass}")
+                    val progress = call.arguments as HashMap<*, *>
+                    val dataBuilder = Data.Builder()
+                    progress.entries.forEach {
+                        addFieldToData(dataBuilder, it)
+                    }
+                    setProgressAsync(dataBuilder.build())
                 }
             }
         }
@@ -135,22 +193,20 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
     private val resultHandler = object : MethodChannel.Result {
         override fun success(result: Any?) {
             Log.d(TAG, "doWork: task success")
-            if (completer.isActive)
-                completer.complete(
-                    Result.success(
-                        Data.Builder().putString("test", result as String).build()
-                    )
-                )
+            if (completer.isActive) {
+                val progress = result as HashMap<*, *>
+                val dataBuilder = Data.Builder()
+                progress.entries.forEach {
+                    addFieldToData(dataBuilder, it)
+                }
+                completer.complete(Result.success(dataBuilder.build()))
+            }
         }
 
         override fun error(errorCode: String?, errorMessage: String?, errorDetails: Any?) {
-            Log.d(TAG, "doWork: task error")
+            Log.d(TAG, "doWork: task error code=$errorCode message=$errorMessage details=$errorDetails")
             if (completer.isActive)
-                completer.complete(
-                    Result.failure(
-                        Data.Builder().putString("test", "test failure : $errorCode, $errorMessage, $errorDetails").build()
-                    )
-                )
+                completer.complete(Result.failure(workDataOf("result" to errorMessage)))
         }
 
         override fun notImplemented() {

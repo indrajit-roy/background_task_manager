@@ -8,7 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'background_service_i.dart';
 
 class BackgroundService implements ColcoBackgroundService {
-  final service = BackgroundTaskManager();
+  final service = BackgroundTaskManager.singleton;
 
   @override
   Future<ColcoBackgroundTask> enqueueBackgroundTask<T>({required ColcoBackgroundTaskRequest<T> taskRequest}) {
@@ -25,9 +25,6 @@ class BackgroundService implements ColcoBackgroundService {
   @override
   Future<bool> init() async {
     try {
-      await service.init(
-        modelMap: BtmModelMap.mapper().addModel<EventObject>(type: "EventObject", converter: (map) => EventObject.fromMap(map)).buildMap(),
-      );
       return true;
     } on Exception catch (e) {
       debugPrint("BackgroundService init exception $e");
@@ -89,5 +86,5 @@ class TaskRequest<T> extends ColcoBackgroundTaskRequest<T> {
   TaskRequest({required this.callBack, final String? tag, T? args}) : super(callBack: callBack, tag: tag, args: args);
 }
 extension Ext<T> on ColcoBackgroundTaskRequest<T> {
-  BtmTask get btmTask => BtmTask(type: T.toString(), handle: callBack as Future<void> Function(Object?));
+  BtmTask get btmTask => BtmTask(handle: callBack as Future<void> Function(Object?));
 }

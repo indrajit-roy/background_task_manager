@@ -1,6 +1,3 @@
-import 'dart:convert';
-
-import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
 typedef BackgroundTask = Future<void> Function(Object message);
@@ -9,29 +6,30 @@ enum BtmTaskStatus { RUNNING, ENQUEUED, BLOCKED, CANCELLED, FAILED, SUCCEEDED }
 
 abstract class BackgroundTaskInterface {
   Stream get eventStream;
+  Stream get resultStream;
   Stream getEventStreamFor(String taskId);
-  Stream<T> getEventStream<T extends BackgroundEvent>();
+  Stream getResultStreamFor(String taskId);
 
   Future<void> init();
   void dispose();
 
   Future<List<BtmTask>> getTasksWithStatus({required BtmTaskStatus status});
-  Future<void> executeTask<T extends BackgroundEvent>(BtmTask<T> task);
+  Future<void> executeTask(BtmTask task);
 }
 
-class BtmTask<T extends BackgroundEvent> {
+class BtmTask {
   /// You can pass your own unique ```Id``` or one will be generated for you
   final String taskId;
 
   /// Optional. Need not be unique. Just used to categorize a task.
   final String? tag;
 
-  /// This is used to derive which ```Type``` of object is sent as background events
-  /// from the task. Register the ```Type``` against ```type``` in
-  /// ```
-  /// BackgroundTaskManager.singleton.init(modelMap : BtmModelMap.mapper().addModel<T>(type,converter).build())
-  /// ```
-  final String type;
+  // /// This is used to derive which ```Type``` of object is sent as background events
+  // /// from the task. Register the ```Type``` against ```type``` in
+  // /// ```
+  // /// BackgroundTaskManager.singleton.init(modelMap : BtmModelMap.mapper().addModel<T>(type,converter).build())
+  // /// ```
+  // final String type;
 
   /// This is the function that will execute in the background.
   /// Make sure this is a ```top-level``` or a ```static``` function
@@ -41,70 +39,115 @@ class BtmTask<T extends BackgroundEvent> {
   /// ```
   /// BackgroundTaskManager.singleton.init(modelMap : BtmModelMap.mapper().addModel<T>(type,converter).build())
   /// ```
-  final T? args;
+  final dynamic args;
 
-  BtmTask({this.tag, required this.type, required this.handle, String? taskId, this.args}) : taskId = (taskId ?? const Uuid().v4());
+  BtmTask({this.tag, required this.handle, String? taskId, this.args}) : taskId = (taskId ?? const Uuid().v4());
 
   @override
   String toString() {
-    return 'BtmTask(taskId: $taskId, tag: $tag, type: $type, handle: $handle, args: $args)';
+    return 'BtmTask(taskId: $taskId, tag: $tag, handle: $handle, args: $args)';
   }
 }
 
-class BtmModelMap {
-  final Map<String, Type> map;
-  final Map<Type, Function(Map<Object?, Object?>)> converterMap;
-  BtmModelMap._internal(this.map, this.converterMap);
-  BtmModelMap.empty()
-      : map = {},
-        converterMap = {};
+abstract class BackgroundDataField<T> {
+  String get platformKey;
+  T get value;
 
-  static BtmModelMapper mapper() => BtmModelMapper();
-
-  String? getTypeKey<T>() {
-    try {
-      return map.entries.firstWhere((element) => element.value is T).key;
-    } on Error catch (e) {
-      debugPrint("getTypeKey not found $e");
-      return null;
-    }
-  }
-
-  Type? getType(String key) => map[key];
-
-  Object? getObjectFromKey({required String type, required Map<Object?, Object?> map}) {
-    if (this.map[type] == null) return null;
-    final converterFunction = converterMap[this.map[type]];
-    return converterFunction?.call(map);
-  }
-
-  T getObject<T>({required Map<Object?, Object?> map}) {
-    try {
-      final obj = converterMap[T]?.call(map);
-      if (obj == null) throw Error();
-      return obj;
-    } on Error catch (e) {
-      debugPrint("getObject error $e");
-      rethrow;
-    }
-  }
+  Map<String, dynamic> toMap() => {"platformKey": platformKey, "value": value};
 }
 
-class BtmModelMapper {
-  final _map = <String, Type>{};
-  final _converterMap = <Type, Function(Map<Object?, Object?> map)>{};
+class IntegerDataField extends BackgroundDataField<int> {
+  @override
+  final int value;
 
-  BtmModelMap buildMap() => BtmModelMap._internal(_map, _converterMap);
+  IntegerDataField({
+    required this.value,
+  }) : super();
 
-  BtmModelMapper addModel<T extends BackgroundEvent>({required String type, required T Function(Map<Object?, Object?> map) converter}) {
-    _map.putIfAbsent(type, () => T);
-    _converterMap.putIfAbsent(T, () => converter);
-    return this;
-  }
+  @override
+  String get platformKey => "int";
 }
 
-abstract class BackgroundEvent {
-  const BackgroundEvent();
-  Map<Object?, Object?> toMap();
-  String toJson() => json.encode(toMap());
+class DoubleDataField extends BackgroundDataField<double> {
+  @override
+  final double value;
+
+  DoubleDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "double";
+}
+
+class BooleanDataField extends BackgroundDataField<bool> {
+  @override
+  final bool value;
+
+  BooleanDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "bool";
+}
+
+class StringDataField extends BackgroundDataField<String> {
+  @override
+  final String value;
+
+  StringDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "String";
+}
+
+class StringListDataField extends BackgroundDataField<List<String>> {
+  @override
+  final List<String> value;
+
+  StringListDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "List<String>";
+}
+
+class IntegerListDataField extends BackgroundDataField<List<int>> {
+  @override
+  final List<int> value;
+
+  IntegerListDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "List<int>";
+}
+
+class DoubleListDataField extends BackgroundDataField<List<double>> {
+  @override
+  final List<double> value;
+
+  DoubleListDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "List<double>";
+}
+
+class BooleanListDataField extends BackgroundDataField<List<bool>> {
+  @override
+  final List<bool> value;
+
+  BooleanListDataField({
+    required this.value,
+  }) : super();
+
+  @override
+  String get platformKey => "List<bool>";
 }

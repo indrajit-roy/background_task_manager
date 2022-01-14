@@ -28,11 +28,14 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     private val TAG = "BackgroundTaskManager"
     private lateinit var context: Context
     private lateinit var channel: MethodChannel
-    private lateinit var eventChannel: EventChannel
+    private lateinit var progressEventChannel: EventChannel
+    private lateinit var resultEventChannel: EventChannel
     private lateinit var methodCallHandler: MethodChannel.MethodCallHandler
-    val streamHandler = BtmStreamHandler()
-    lateinit var workManager: WorkManager
-    private var liveData: LiveData<MutableList<WorkInfo>>? = null
+    private val progressStreamHandler = ProgressStreamHandler()
+    private val resultStreamHandler = ResultStreamHandler()
+    private lateinit var workManager: WorkManager
+    private var workProgressLiveData: LiveData<MutableList<WorkInfo>>? = null
+    private var workResultLiveData: LiveData<MutableList<WorkInfo>>? = null
 
     private val mainScope = CoroutineScope(Dispatchers.Main)
 
@@ -40,15 +43,21 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
         context = flutterPluginBinding.applicationContext
         ContextHolder.setApplicationContext(context)
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_method_channel")
-        eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_event_channel")
+        progressEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_event_channel")
+        resultEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_event_channel_result")
         channel.setMethodCallHandler(this)
-        eventChannel.setStreamHandler(streamHandler)
+        progressEventChannel.setStreamHandler(progressStreamHandler)
+        resultEventChannel.setStreamHandler(resultStreamHandler)
         workManager = WorkManager.getInstance(context)
         methodCallHandler = BtmMethodCallHandler(workManager = workManager)
-        liveData = workManager.getWorkInfosLiveData(
-            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING)).build()
+        workProgressLiveData = workManager.getWorkInfosLiveData(
+            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED)).build()
         )
-        liveData?.observeForever(runningTasksObserver)
+        workResultLiveData = workManager.getWorkInfosLiveData(
+            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED)).build()
+        )
+        workProgressLiveData?.observeForever(runningTasksObserver)
+        workResultLiveData?.observeForever(taskResultObserver)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -77,8 +86,6 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
             "executeTask" -> {
                 try {
                     val taskId = (call.arguments as Map<*, *>)["taskId"] as String
-                    val type = (call.arguments as Map<*, *>)["type"] as String
-                    Log.d(TAG, "onMethodCall executeTask : taskId= $taskId, type= $type")
                     val callbackHandle: Long? = (call.arguments as Map<*, *>)["callbackHandle"] as Long?
                     val taskHandle: Long? = (call.arguments as Map<*, *>)["taskHandle"] as Long?
                     val args: String? = (call.arguments as Map<*, *>)["args"] as String?
@@ -93,7 +100,7 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     val op = workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
                     val output = op.result.also {
                         it.addListener({
-                            IOUtils.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId, type)
+                            IOUtils.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId)
                             result.success("Success from await $taskId ${oneTimeWorkRequest.id}")
                         }, { command -> command?.run() })
                     }
@@ -109,24 +116,49 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-        liveData?.removeObserver(runningTasksObserver)
+        workProgressLiveData?.removeObserver(runningTasksObserver)
+        workResultLiveData?.removeObserver(taskResultObserver)
         channel.setMethodCallHandler(null)
-        eventChannel.setStreamHandler(null)
+        progressEventChannel.setStreamHandler(null)
     }
 
     private val runningTasksObserver = Observer<MutableList<WorkInfo>>() {
         Log.d(TAG, "runningTasksObserver : filtered Infos Size : ${it.size}")
         it.forEach { info ->
-            val progress = info.progress.getString("test")
-            if (progress != null) {
+            val progress = info.progress.keyValueMap
+            if (progress.isNotEmpty()) {
                 val taskInfo = IOUtils.getTaskInfo(info.id.toString())
                 Log.d(TAG, "taskInfo : $taskInfo")
                 if (taskInfo == null) return@forEach
-                streamHandler.sendEvent(
+                val hashMap = hashMapOf<String, Any?>()
+                progress.entries.forEach { entry ->
+                    hashMap[entry.key] = entry.value
+                }
+                progressStreamHandler.sendEvent(
                     hashMapOf(
                         "taskId" to taskInfo["taskId"],
-                        "type" to taskInfo["taskType"],
-                        "event" to progress
+                        "event" to hashMap
+                    )
+                )
+            }
+        }
+    }
+    private val taskResultObserver = Observer<MutableList<WorkInfo>>() {
+        Log.d(TAG, "taskResultObserver : filtered Infos Size : ${it.size}")
+        it.forEach { info ->
+            val result = info.outputData.keyValueMap
+            if (result.isNotEmpty()) {
+                val taskInfo = IOUtils.getTaskInfo(info.id.toString())
+                Log.d(TAG, "taskInfo : $taskInfo")
+                if (taskInfo == null) return@forEach
+                val hashMap = hashMapOf<String, Any?>()
+                result.entries.forEach { entry ->
+                    hashMap[entry.key] = entry.value
+                }
+                resultStreamHandler.sendEvent(
+                    hashMapOf(
+                        "taskId" to taskInfo["taskId"],
+                        "result" to hashMap
                     )
                 )
             }

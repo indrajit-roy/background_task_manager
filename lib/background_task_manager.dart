@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -10,7 +9,8 @@ import 'interfaces/background_task_i.dart';
 
 const _methodChannel = MethodChannel("background_task_manager_method_channel");
 const _bgMethodChannel = MethodChannel("background_task_manager_worker_method_channel");
-const _eventChannel = EventChannel("background_task_manager_event_channel");
+const _progressEventChannel = EventChannel("background_task_manager_event_channel");
+const _resultEventChannel = EventChannel("background_task_manager_event_channel_result");
 
 void _callbackDispatcher() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,9 +29,9 @@ void _callbackDispatcher() {
         try {
           await closure(argsMap["args"]);
           await Future.delayed(const Duration(milliseconds: 200));
-          return "success";
+          return {"result": StringDataField(value: "success").toMap()};
         } catch (e) {
-          throw e.toString();
+          throw {"result": StringDataField(value: "Something went exception!").toMap()};
         }
       default:
         null;
@@ -40,71 +40,63 @@ void _callbackDispatcher() {
 }
 
 class BackgroundTaskManager implements BackgroundTaskInterface {
-  static postSuccess({String? data}) => _bgMethodChannel.invokeMethod("success", data);
-  static postFailure({String? exceptionMessage}) => _bgMethodChannel.invokeMethod("failed", exceptionMessage);
-  static postEvent({String? args}) => _bgMethodChannel.invokeMethod("sendEvent", args);
+  static postEvent({required Map<String, BackgroundDataField> args}) =>
+      _bgMethodChannel.invokeMethod("sendEvent", args.map<String, Map>((key, value) => MapEntry(key, value.toMap())));
+  static postSuccess({required Map<String, BackgroundDataField> args}) =>
+      _bgMethodChannel.invokeMethod("success", args..map<String, Map>((key, value) => MapEntry(key, value.toMap())));
+  static postFailure({required Map<String, BackgroundDataField> args}) =>
+      _bgMethodChannel.invokeMethod("failed", args.map<String, Map>((key, value) => MapEntry(key, value.toMap())));
 
-  BackgroundTaskManager._() : _internalEventStream = StreamController.broadcast();
-  factory BackgroundTaskManager() => _instance ??= BackgroundTaskManager._();
+  BackgroundTaskManager._()
+      : _internalProgressEventStream = StreamController.broadcast(),
+        _internalResultEventStream = StreamController.broadcast();
   static BackgroundTaskManager? _instance;
-  static BackgroundTaskManager get singleton => _instance ??= BackgroundTaskManager();
+  static BackgroundTaskManager get singleton => _instance ??= BackgroundTaskManager._();
 
   bool _isPlatformInitialized = false;
-  bool get isInitialized => _isPlatformInitialized && _eventStream != null;
+  bool get isInitialized => _isPlatformInitialized && _progressEventStream != null;
 
-  late final BtmModelMap _modelMap;
-  BtmModelMap get modelMap => _modelMap;
   Map<String, String> taskToType = {};
 
-  Stream? _eventStream;
-  final StreamController _internalEventStream;
-  StreamSubscription? _streamSubscription;
+  Stream? _progressEventStream;
+  Stream? _resultEventStream;
+
+  final StreamController _internalProgressEventStream;
+  final StreamController _internalResultEventStream;
+  StreamSubscription? _progressStreamSubscription;
+  StreamSubscription? _resultStreamSubscription;
 
   @override
-  Stream get eventStream => _internalEventStream.stream;
+  Stream get eventStream => _internalProgressEventStream.stream;
+  @override
+  Stream get resultStream => _internalResultEventStream.stream;
 
   @override
-  Stream<T> getEventStream<T extends BackgroundEvent>() {
-    return eventStream.where((event) => _modelMap.getTypeKey<T>() != null).map<T>((event) => _modelMap.getObject<T>(map: event["event"]));
-  }
-
-  @override
-  Stream getEventStreamFor(String taskId) {
-    try {
-      return eventStream.where((event) {
+  Stream<Map> getEventStreamFor(String taskId) => eventStream.where((event) {
         debugPrint("getEventStreamFor, raw event=$event");
         return event["taskId"] == taskId;
       }).map((event) {
-        debugPrint("getEventStreamFor $taskId, eventType=${event["event"].runtimeType} modelMap : $_modelMap");
-        if (event["type"] != null && event["event"] is String) {
-          final model = _modelMap.getObjectFromKey(type: event["type"], map: json.decode(event["event"]));
-          debugPrint("getEventStreamFor model : $model of type ${model.runtimeType}");
-          return model;
-        } else {
-          return null;
-        }
+        return event["event"];
       });
-    } on Exception catch (e) {
-      debugPrint("getEventStreamFor exception $e");
-      return eventStream;
-    } on Error catch (e) {
-      debugPrint("getEventStreamFor error $e");
-      return eventStream;
-    }
-  }
 
   @override
-  Future<void> executeTask<T extends BackgroundEvent>(BtmTask<T> task) async {
+  Stream<Map> getResultStreamFor(String taskId) => resultStream.where((event) {
+        debugPrint("getEventStreamFor, raw event=$event");
+        return event["taskId"] == taskId;
+      }).map((event) {
+        return event["result"];
+      });
+
+  @override
+  Future<void> executeTask(BtmTask task) async {
     try {
       debugPrint("executeTask task $task");
-      taskToType[task.taskId] = task.type;
       final result = await _methodChannel.invokeMethod("executeTask", {
         "taskId": task.taskId,
         "tag": task.tag,
-        "type": task.type,
         "callbackHandle": PluginUtilities.getCallbackHandle(_callbackDispatcher)?.toRawHandle(),
         "taskHandle": PluginUtilities.getCallbackHandle(task.handle)?.toRawHandle(),
-        "args": task.args?.toJson()
+        "args": task.args
       });
       debugPrint("executeTask success $result");
     } on Exception catch (e) {
@@ -114,15 +106,15 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   }
 
   @override
-  Future<List<BtmTask<BackgroundEvent>>> getTasksWithStatus({required BtmTaskStatus status}) async {
+  Future<List<BtmTask>> getTasksWithStatus({required BtmTaskStatus status}) async {
     try {
       final taskIds = await _methodChannel.invokeMethod("getTasksByStatus", {"status": status.name});
       debugPrint("getTasksWithStatus got $taskIds of type : ${taskIds.runtimeType}");
       if (taskIds is List) {
         // TODO : Retrieve task info from cache and map Ids to Tasks
-        return taskIds.map((e) => BtmTask(taskId: e, type: "type", handle: (obj) async {})).toList();
+        return taskIds.map((e) => BtmTask(taskId: e, handle: (obj) async {})).toList();
       }
-      return <BtmTask<BackgroundEvent>>[];
+      return <BtmTask>[];
     } on Exception catch (e) {
       debugPrint("BackgroundTaskManager getTasksWithStatus exception $e");
       rethrow;
@@ -130,19 +122,24 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   }
 
   @override
-  Future<void> init({BtmModelMap? modelMap}) async {
+  Future<void> init() async {
     try {
       debugPrint("BackgroundTaskManager init start");
-      _modelMap = modelMap ??= BtmModelMap.empty();
       final initValue = await _methodChannel.invokeMethod("initialize");
       _isPlatformInitialized = initValue;
       debugPrint("BackgroundTaskManager init $initValue");
-      _eventStream ??= _eventChannel.receiveBroadcastStream();
-      _streamSubscription = _eventStream?.listen((event) {
-        _internalEventStream.add(event);
+      // Initialize progress Stream
+      _progressEventStream ??= _progressEventChannel.receiveBroadcastStream();
+      _progressStreamSubscription = _progressEventStream?.listen((event) {
+        _internalProgressEventStream.add(event);
+      });
+      // Initialize result Stream
+      _resultEventStream ??= _resultEventChannel.receiveBroadcastStream();
+      _resultStreamSubscription = _resultEventStream?.listen((event) {
+        _internalResultEventStream.add(event);
       });
       debugPrint(
-          "BackgroundTaskManager init success _eventStream : $_eventStream, _internalEventStream : $_internalEventStream, _streamSubscription : $_streamSubscription");
+          "BackgroundTaskManager init success _eventStream : $_progressEventStream, _internalEventStream : $_internalProgressEventStream, _streamSubscription : $_progressStreamSubscription");
     } on Exception catch (e) {
       debugPrint("BackgroundTaskManager init exception $e");
       rethrow;
@@ -154,8 +151,10 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
 
   @override
   void dispose() {
-    _streamSubscription?.cancel();
-    _internalEventStream.close();
-    _streamSubscription = null;
+    _progressStreamSubscription?.cancel();
+    _resultStreamSubscription?.cancel();
+    _internalProgressEventStream.close();
+    _internalResultEventStream.close();
+    _progressStreamSubscription = null;
   }
 }

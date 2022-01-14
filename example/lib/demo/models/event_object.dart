@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:background_task_manager/interfaces/background_task_i.dart';
 
-class EventObject extends BackgroundEvent {
+class EventObject {
   final String eventId;
   final String? newEventId;
   final double progress;
@@ -52,7 +52,7 @@ class EventObject extends BackgroundEvent {
       };
 }
 
-class SubEventObject extends BackgroundEvent {
+class SubEventObject {
   final String id;
   final String? newId;
 
