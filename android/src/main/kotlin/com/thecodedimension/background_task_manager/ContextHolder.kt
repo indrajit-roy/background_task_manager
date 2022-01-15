@@ -10,7 +10,6 @@ class ContextHolder {
         fun getApplicationContext(): Context? {
             return applicationContext
         }
-
         fun setApplicationContext(applicationContext: Context?) {
             Log.d("FLTFireContextHolder", "received application context.")
             this.applicationContext = applicationContext

@@ -53,8 +53,10 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   static BackgroundTaskManager? _instance;
   static BackgroundTaskManager get singleton => _instance ??= BackgroundTaskManager._();
 
-  bool _isPlatformInitialized = false;
-  bool get isInitialized => _isPlatformInitialized && _progressEventStream != null;
+  Completer<bool> initCompletable = Completer<bool>();
+  bool? _isInitialized;
+  bool get isInitialized => initCompletable.isCompleted && _isInitialized == true;
+  bool get startedInitialization => _isInitialized != null;
 
   Map<String, String> taskToType = {};
 
@@ -91,12 +93,17 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   Future<void> executeTask(BtmTask task) async {
     try {
       debugPrint("executeTask task $task");
+      if (!startedInitialization) {
+        throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
+      }
+      if (!initCompletable.isCompleted) await initCompletable.future;
+      if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
       final result = await _methodChannel.invokeMethod("executeTask", {
         "taskId": task.taskId,
         "tag": task.tag,
         "callbackHandle": PluginUtilities.getCallbackHandle(_callbackDispatcher)?.toRawHandle(),
         "taskHandle": PluginUtilities.getCallbackHandle(task.handle)?.toRawHandle(),
-        "args": task.args
+        "args": task.args?.map<String, Map>((key, value) => MapEntry(key, value.toMap()))
       });
       debugPrint("executeTask success $result");
     } on Exception catch (e) {
@@ -108,6 +115,12 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   @override
   Future<List<BtmTask>> getTasksWithStatus({required BtmTaskStatus status}) async {
     try {
+      debugPrint("getTasksWithStatus start $status");
+      if (!startedInitialization) {
+        throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
+      }
+      if (!initCompletable.isCompleted) await initCompletable.future;
+      if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
       final taskIds = await _methodChannel.invokeMethod("getTasksByStatus", {"status": status.name});
       debugPrint("getTasksWithStatus got $taskIds of type : ${taskIds.runtimeType}");
       if (taskIds is List) {
@@ -125,26 +138,28 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   Future<void> init() async {
     try {
       debugPrint("BackgroundTaskManager init start");
+      _isInitialized = false;
       final initValue = await _methodChannel.invokeMethod("initialize");
-      _isPlatformInitialized = initValue;
-      debugPrint("BackgroundTaskManager init $initValue");
-      // Initialize progress Stream
+      //* Initialize progress Stream
       _progressEventStream ??= _progressEventChannel.receiveBroadcastStream();
       _progressStreamSubscription = _progressEventStream?.listen((event) {
         _internalProgressEventStream.add(event);
       });
-      // Initialize result Stream
+      //* Initialize result Stream
       _resultEventStream ??= _resultEventChannel.receiveBroadcastStream();
       _resultStreamSubscription = _resultEventStream?.listen((event) {
         _internalResultEventStream.add(event);
       });
-      debugPrint(
-          "BackgroundTaskManager init success _eventStream : $_progressEventStream, _internalEventStream : $_internalProgressEventStream, _streamSubscription : $_progressStreamSubscription");
+      _isInitialized = initValue;
+      initCompletable.complete(_isInitialized);
+      debugPrint("BackgroundTaskManager init success");
     } on Exception catch (e) {
       debugPrint("BackgroundTaskManager init exception $e");
+      initCompletable.complete(false);
       rethrow;
     } on Error catch (e) {
       debugPrint("BackgroundTaskManager init error $e");
+      initCompletable.complete(false);
       rethrow;
     }
   }
@@ -156,5 +171,6 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
     _internalProgressEventStream.close();
     _internalResultEventStream.close();
     _progressStreamSubscription = null;
+    _resultStreamSubscription = null;
   }
 }

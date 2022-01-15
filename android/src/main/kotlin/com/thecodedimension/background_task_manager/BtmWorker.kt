@@ -222,23 +222,3 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         }
     }
 }
-
-class CustomLifeCycleOwner : LifecycleOwner {
-    private val mLifecycleRegistry: LifecycleRegistry = LifecycleRegistry(this)
-    fun stopListening() {
-        mLifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
-    }
-
-    fun startListening() {
-        mLifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-    }
-
-    override fun getLifecycle(): Lifecycle {
-        Log.i("CustomLifeCycleOwner", "Returning registry!!")
-        return mLifecycleRegistry
-    }
-
-    init {
-        mLifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-    }
-}

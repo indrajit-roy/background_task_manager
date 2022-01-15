@@ -10,10 +10,8 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 
-val workStateMap = mapOf<String, WorkInfo.State>(
+val workStateMap = mapOf(
     "RUNNING" to WorkInfo.State.RUNNING,
     "ENQUEUED" to WorkInfo.State.ENQUEUED,
     "BLOCKED" to WorkInfo.State.BLOCKED,
@@ -30,14 +28,12 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     private lateinit var channel: MethodChannel
     private lateinit var progressEventChannel: EventChannel
     private lateinit var resultEventChannel: EventChannel
-    private lateinit var methodCallHandler: MethodChannel.MethodCallHandler
     private val progressStreamHandler = ProgressStreamHandler()
     private val resultStreamHandler = ResultStreamHandler()
     private lateinit var workManager: WorkManager
     private var workProgressLiveData: LiveData<MutableList<WorkInfo>>? = null
     private var workResultLiveData: LiveData<MutableList<WorkInfo>>? = null
-
-    private val mainScope = CoroutineScope(Dispatchers.Main)
+    private var isInitialized = false
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         context = flutterPluginBinding.applicationContext
@@ -46,26 +42,36 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
         progressEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_event_channel")
         resultEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "background_task_manager_event_channel_result")
         channel.setMethodCallHandler(this)
-        progressEventChannel.setStreamHandler(progressStreamHandler)
-        resultEventChannel.setStreamHandler(resultStreamHandler)
-        workManager = WorkManager.getInstance(context)
-        methodCallHandler = BtmMethodCallHandler(workManager = workManager)
-        workProgressLiveData = workManager.getWorkInfosLiveData(
-            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED)).build()
-        )
-        workResultLiveData = workManager.getWorkInfosLiveData(
-            WorkQuery.Builder.fromStates(listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED)).build()
-        )
-        workProgressLiveData?.observeForever(runningTasksObserver)
-        workResultLiveData?.observeForever(taskResultObserver)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "initialize" -> {
-                result.success(true)
+                try {
+                    progressEventChannel.setStreamHandler(progressStreamHandler)
+                    resultEventChannel.setStreamHandler(resultStreamHandler)
+                    workManager = WorkManager.getInstance(context)
+                    workProgressLiveData = workManager.getWorkInfosLiveData(
+                        WorkQuery.Builder.fromStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED)).build()
+                    )
+                    workResultLiveData = workManager.getWorkInfosLiveData(
+                        WorkQuery.Builder.fromStates(listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED)).build()
+                    )
+                    workProgressLiveData?.observeForever(runningTasksObserver)
+                    workResultLiveData?.observeForever(taskResultObserver)
+                    isInitialized = true
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.success(false)
+                } catch (e: Error) {
+                    result.success(false)
+                }
             }
             "getTasksByStatus" -> {
+                if (!isInitialized) {
+                    result.error("401", "Please call BackgroundTaskManager.singleton.init()", "Background Task Manager is not initialized.")
+                    return
+                }
                 val status = (call.arguments as Map<*, *>)["status"] as String?
                 if (status == null)
                     result.error("300", "Status passed from app was null", "")
@@ -73,7 +79,7 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                 workManager.getWorkInfos(WorkQuery.Builder.fromStates(listOf(workStateMap[status])).build()).also {
                     it.addListener({
                         val taskIdList = it.get().map { info ->
-                            val taskInfo = IOUtils.getTaskInfo(info.id.toString())
+                            val taskInfo = BackgroundPreferences.getTaskInfo(info.id.toString())
                             if (taskInfo == null)
                                 null
                             else
@@ -85,10 +91,13 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
             }
             "executeTask" -> {
                 try {
-                    val taskId = (call.arguments as Map<*, *>)["taskId"] as String
-                    val callbackHandle: Long? = (call.arguments as Map<*, *>)["callbackHandle"] as Long?
-                    val taskHandle: Long? = (call.arguments as Map<*, *>)["taskHandle"] as Long?
-                    val args: String? = (call.arguments as Map<*, *>)["args"] as String?
+                    if (!isInitialized) throw Exception("Background Task Manager is not initialized. Please call BackgroundTaskManager.singleton.init()")
+                    val argsMap = call.arguments as Map<*, *>
+                    val taskId = argsMap["taskId"] as String
+                    val tag = argsMap["tag"] as String?
+                    val callbackHandle: Long? = argsMap["callbackHandle"] as Long?
+                    val taskHandle: Long? = argsMap["taskHandle"] as Long?
+                    val args: String? = argsMap["args"] as String?
                     if (callbackHandle == null || taskHandle == null)
                         result.error("", "", "");
 
@@ -98,9 +107,9 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                                 .build()
                         ).build()
                     val op = workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
-                    val output = op.result.also {
+                    op.result.also {
                         it.addListener({
-                            IOUtils.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId)
+                            BackgroundPreferences.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId, tag = tag)
                             result.success("Success from await $taskId ${oneTimeWorkRequest.id}")
                         }, { command -> command?.run() })
                     }
@@ -123,11 +132,11 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
     }
 
     private val runningTasksObserver = Observer<MutableList<WorkInfo>>() {
-        Log.d(TAG, "runningTasksObserver : filtered Infos Size : ${it.size}")
+        Log.d(TAG, "runningTasksObserver : filtered Info's Size : ${it.size}")
         it.forEach { info ->
             val progress = info.progress.keyValueMap
             if (progress.isNotEmpty()) {
-                val taskInfo = IOUtils.getTaskInfo(info.id.toString())
+                val taskInfo = BackgroundPreferences.getTaskInfo(info.id.toString())
                 Log.d(TAG, "taskInfo : $taskInfo")
                 if (taskInfo == null) return@forEach
                 val hashMap = hashMapOf<String, Any?>()
@@ -144,11 +153,11 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
         }
     }
     private val taskResultObserver = Observer<MutableList<WorkInfo>>() {
-        Log.d(TAG, "taskResultObserver : filtered Infos Size : ${it.size}")
+        Log.d(TAG, "taskResultObserver : filtered Info's Size : ${it.size}")
         it.forEach { info ->
             val result = info.outputData.keyValueMap
             if (result.isNotEmpty()) {
-                val taskInfo = IOUtils.getTaskInfo(info.id.toString())
+                val taskInfo = BackgroundPreferences.getTaskInfo(info.id.toString())
                 Log.d(TAG, "taskInfo : $taskInfo")
                 if (taskInfo == null) return@forEach
                 val hashMap = hashMapOf<String, Any?>()

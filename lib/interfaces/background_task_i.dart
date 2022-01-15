@@ -24,22 +24,12 @@ class BtmTask {
   /// Optional. Need not be unique. Just used to categorize a task.
   final String? tag;
 
-  // /// This is used to derive which ```Type``` of object is sent as background events
-  // /// from the task. Register the ```Type``` against ```type``` in
-  // /// ```
-  // /// BackgroundTaskManager.singleton.init(modelMap : BtmModelMap.mapper().addModel<T>(type,converter).build())
-  // /// ```
-  // final String type;
-
   /// This is the function that will execute in the background.
   /// Make sure this is a ```top-level``` or a ```static``` function
   final BackgroundTask handle;
 
-  /// Make sure you have registered the type ```T``` in ```BtmModelMap``` when calling
-  /// ```
-  /// BackgroundTaskManager.singleton.init(modelMap : BtmModelMap.mapper().addModel<T>(type,converter).build())
-  /// ```
-  final dynamic args;
+  /// These arguments will be passed to the background ```handle```
+  final Map<String, BackgroundDataField>? args;
 
   BtmTask({this.tag, required this.handle, String? taskId, this.args}) : taskId = (taskId ?? const Uuid().v4());
 
@@ -49,11 +39,44 @@ class BtmTask {
   }
 }
 
-abstract class BackgroundDataField<T> {
+/// Representation of a data field that can be passed to the background handle
+///
+/// Implementations include :
+/// ```
+/// IntegerDataField, DoubleDataField, BooleanDataField, StringDataField, StringListDataField, IntegerListDataField, DoubleListDataField, BooleanListDataField
+/// ```
+/// Use one of these to pass data to the background handle
+abstract class BackgroundDataField<T extends Object> {
   String get platformKey;
   T get value;
 
   Map<String, dynamic> toMap() => {"platformKey": platformKey, "value": value};
+  BackgroundDataField();
+
+  static BackgroundDataField fromMap(Map<String, dynamic> map) {
+    final platformKey = map["platformKey"];
+    final value = map["value"];
+    switch (platformKey) {
+      case "int":
+        return IntegerDataField(value: value);
+      case "double":
+        return DoubleDataField(value: value);
+      case "bool":
+        return BooleanDataField(value: value);
+      case "String":
+        return StringDataField(value: value);
+      case "List<String>":
+        return StringListDataField(value: value);
+      case "List<int>":
+        return IntegerListDataField(value: value);
+      case "List<double>":
+        return DoubleListDataField(value: value);
+      case "List<bool>":
+        return BooleanListDataField(value: value);
+      default:
+        throw StateError("Could not parse $map. The map isn't a BackgroundDataField.");
+    }
+  }
 }
 
 class IntegerDataField extends BackgroundDataField<int> {

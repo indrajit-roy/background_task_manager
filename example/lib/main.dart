@@ -70,7 +70,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     task = BtmTask(
-      args: "I AM ARGUMENTS",
+      args: {"stringKey": StringDataField(value: "Helloooooo Argssssssss")},
       handle: testHandle,
     );
     debugPrint("relaunch debug main app init");
