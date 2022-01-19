@@ -72,20 +72,23 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     result.error("401", "Please call BackgroundTaskManager.singleton.init()", "Background Task Manager is not initialized.")
                     return
                 }
-                val status = (call.arguments as Map<*, *>)["status"] as String?
-                if (status == null)
+                val status = (call.arguments as Map<*, *>)["status"] as List<*>?
+                val statusList = status?.map {
+                    workStateMap[it]
+                }
+                if (statusList == null) {
                     result.error("300", "Status passed from app was null", "")
-
-                workManager.getWorkInfos(WorkQuery.Builder.fromStates(listOf(workStateMap[status])).build()).also {
+                    return
+                }
+                workManager.getWorkInfos(WorkQuery.Builder.fromStates(statusList.toMutableList()).build()).also {
+                    val taskIdList: MutableList<String> = mutableListOf()
                     it.addListener({
-                        val taskIdList = it.get().map { info ->
+                        it.get().forEach { info ->
                             val taskInfo = BackgroundPreferences.getTaskInfo(info.id.toString())
-                            if (taskInfo == null)
-                                null
-                            else
-                                taskInfo["taskId"]
+                            if (taskInfo != null && taskInfo["taskId"] != null)
+                                taskIdList.add(taskInfo["taskId"]!!)
                         }
-                        result.success(taskIdList)
+                        result.success(taskIdList.toList())
                     }, { command -> command.run() })
                 }
             }
@@ -97,16 +100,28 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     val tag = argsMap["tag"] as String?
                     val callbackHandle: Long? = argsMap["callbackHandle"] as Long?
                     val taskHandle: Long? = argsMap["taskHandle"] as Long?
-                    val args: String? = argsMap["args"] as String?
+                    val args: HashMap<*, *> = argsMap["args"] as HashMap<*, *>
                     if (callbackHandle == null || taskHandle == null)
-                        result.error("", "", "");
+                        result.error(
+                            "400",
+                            "Callback handle : $callbackHandle or Task Handle : $taskHandle is null",
+                            "Please pass a top level or a static function to callbackHandle / taskhandle"
+                        )
 
-                    val oneTimeWorkRequest =
-                        OneTimeWorkRequestBuilder<BtmWorker>().setInputData(
-                            Data.Builder().putLong("callbackHandle", callbackHandle!!).putLong("taskHandle", taskHandle!!).putString("args", args)
-                                .build()
-                        ).build()
-                    val op = workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
+                    val dataBuilder = Data.Builder()
+                    args.entries.forEach {
+                        BackgroundTaskManagerWorker.addFieldToData(dataBuilder, it)
+                    }
+                    val oneTimeWorkRequestBuilder = OneTimeWorkRequestBuilder<BackgroundTaskManagerWorker>().setInputData(
+                        dataBuilder.putLong("callbackHandle", callbackHandle!!).putLong("taskHandle", taskHandle!!)
+                            .build()
+                    )
+                    if (tag != null)
+                        oneTimeWorkRequestBuilder.addTag(tag)
+
+                    val oneTimeWorkRequest = oneTimeWorkRequestBuilder.build()
+                    val op = workManager.enqueue(oneTimeWorkRequest)
+//                        workManager.enqueueUniqueWork("testWork", ExistingWorkPolicy.APPEND_OR_REPLACE, oneTimeWorkRequest)
                     op.result.also {
                         it.addListener({
                             BackgroundPreferences.setTaskInfo(oneTimeWorkRequest.id.toString(), taskId, tag = tag)
@@ -146,6 +161,8 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                 progressStreamHandler.sendEvent(
                     hashMapOf(
                         "taskId" to taskInfo["taskId"],
+                        "tag" to taskInfo["tag"],
+                        "status" to workStateMap.entries.firstOrNull { entry -> entry.value == info.state }?.key,
                         "event" to hashMap
                     )
                 )
@@ -167,6 +184,8 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                 resultStreamHandler.sendEvent(
                     hashMapOf(
                         "taskId" to taskInfo["taskId"],
+                        "tag" to taskInfo["tag"],
+                        "status" to workStateMap.entries.firstOrNull { entry -> entry.value == info.state }?.key,
                         "result" to hashMap
                     )
                 )

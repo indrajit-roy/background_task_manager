@@ -5,9 +5,6 @@ import android.content.res.AssetManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
@@ -26,7 +23,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 
-class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     private val TAG = "BtmWorker"
 
     private var backgroundFlutterEngine: FlutterEngine? = null
@@ -36,61 +33,63 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
     private val completer = CompletableDeferred<Result>()
     private val flutterEngineCompleter = CompletableDeferred<Unit>()
 
+    companion object {
+        fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
+            if (entry.value is HashMap<*, *>) {
+                return when ((entry.value as HashMap<*, *>)["platformKey"]) {
+                    "String" -> {
+                        dataBuilder.putString(entry.key as String, (entry.value as HashMap<*, *>)["value"] as String)
+                        dataBuilder
+                    }
+                    "int" -> {
+                        dataBuilder.putInt(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Int)
+                        dataBuilder
+                    }
+                    "double" -> {
+                        dataBuilder.putDouble(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Double)
+                        dataBuilder
+                    }
+                    "bool" -> {
+                        dataBuilder.putBoolean(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Boolean)
+                        dataBuilder
+                    }
+                    "List<String>" -> {
+                        dataBuilder.putStringArray(
+                            entry.key as String,
+                            ((entry.value as HashMap<*, *>)["value"] as List<String>).toTypedArray()
+                        )
+                        dataBuilder
+                    }
+                    "List<double>" -> {
+                        dataBuilder.putDoubleArray(
+                            entry.key as String,
+                            ((entry.value as HashMap<*, *>)["value"] as List<Double>).toDoubleArray()
+                        )
+                        dataBuilder
+                    }
+                    "List<int>" -> {
+                        dataBuilder.putIntArray(
+                            entry.key as String,
+                            ((entry.value as HashMap<*, *>)["value"] as List<Int>).toIntArray()
+                        )
+                        dataBuilder
+                    }
+                    "List<bool>" -> {
+                        dataBuilder.putBooleanArray(
+                            entry.key as String,
+                            ((entry.value as HashMap<*, *>)["value"] as List<Boolean>).toBooleanArray()
+                        )
+                        dataBuilder
+                    }
+                    else -> dataBuilder
+                }
+            } else return dataBuilder;
+        }
+    }
+
 
     private fun isNotRunning(): Boolean {
         return !isCallbackDispatcherReady.get()
-    }
-
-    private fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
-        if (entry.value is HashMap<*, *>) {
-            return when ((entry.value as HashMap<*, *>)["platformKey"]) {
-                "String" -> {
-                    dataBuilder.putString(entry.key as String, (entry.value as HashMap<*, *>)["value"] as String)
-                    dataBuilder
-                }
-                "int" -> {
-                    dataBuilder.putInt(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Int)
-                    dataBuilder
-                }
-                "double" -> {
-                    dataBuilder.putDouble(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Double)
-                    dataBuilder
-                }
-                "bool" -> {
-                    dataBuilder.putBoolean(entry.key as String, (entry.value as HashMap<*, *>)["value"] as Boolean)
-                    dataBuilder
-                }
-                "List<String>" -> {
-                    dataBuilder.putStringArray(
-                        entry.key as String,
-                        ((entry.value as HashMap<*, *>)["value"] as List<String>).toTypedArray()
-                    )
-                    dataBuilder
-                }
-                "List<double>" -> {
-                    dataBuilder.putDoubleArray(
-                        entry.key as String,
-                        ((entry.value as HashMap<*, *>)["value"] as List<Double>).toDoubleArray()
-                    )
-                    dataBuilder
-                }
-                "List<int>" -> {
-                    dataBuilder.putIntArray(
-                        entry.key as String,
-                        ((entry.value as HashMap<*, *>)["value"] as List<Int>).toIntArray()
-                    )
-                    dataBuilder
-                }
-                "List<bool>" -> {
-                    dataBuilder.putBooleanArray(
-                        entry.key as String,
-                        ((entry.value as HashMap<*, *>)["value"] as List<Boolean>).toBooleanArray()
-                    )
-                    dataBuilder
-                }
-                else -> dataBuilder
-            }
-        } else return dataBuilder;
     }
 
     inner class MethodCallHandler : MethodChannel.MethodCallHandler {
@@ -119,7 +118,14 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         val shellArgs: FlutterShellArgs? = null
         val callbackHandle = inputData.getLong("callbackHandle", (-1).toLong())
         val taskHandle = inputData.getLong("taskHandle", (-1).toLong())
-        val args = inputData.getString("args")
+        val args = inputData.keyValueMap
+        val argsHashMap = hashMapOf<String, Any?>()
+        Log.d(TAG, "doWork: worker input data : $args")
+        args.entries.forEach {
+            if (it.key == "callbackHandle" || it.key == "taskHandle") return@forEach
+            argsHashMap[it.key] = it.value
+        }
+        Log.d(TAG, "doWork: args HashMap : $argsHashMap")
         if (backgroundFlutterEngine != null) {
             Log.e(TAG, "Background isolate already started.")
             return Result.failure()
@@ -137,7 +143,7 @@ class BtmWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         }
         Log.d(TAG, "doWork: Attempt to call callback")
         withContext(Dispatchers.Main) {
-            backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to args), resultHandler)
+            backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to argsHashMap), resultHandler)
         }
         val output = completer.await()
         withContext(Dispatchers.Main) {
