@@ -35,12 +35,12 @@ class BackgroundTaskCache implements BackgroundTaskCacheInterface {
   }
 
   @override
-  FutureOr<BtmTask?> get(String taskId) {
+  FutureOr<BackgroundTaskInfo?> get(String taskId) {
     try {
       final value = box.get(taskId);
       if (value == null) return null;
       if (value is! Map<String, dynamic>) throw Exception("Value stored is not of type Map<String,dynamic>. value : $value");
-      return BtmTask.fromMap(value);
+      return BackgroundTaskInfo.fromMap(value);
     } on Exception catch (e) {
       debugPrint("BackgroundTaskCache get exception $e");
       rethrow;
@@ -51,14 +51,18 @@ class BackgroundTaskCache implements BackgroundTaskCacheInterface {
   }
 
   @override
-  FutureOr<List<BtmTask>> getTasks(List<String> taskIds) {
+  FutureOr<List<BackgroundTaskInfo>> getTasks(List<String> taskIds) {
     try {
-      List<BtmTask> list = [];
+      List<BackgroundTaskInfo> list = [];
       for (var element in taskIds) {
         final value = box.get(element);
         debugPrint("BackgroundTaskCache getTasks for $element value = $value of type ${value.runtimeType}");
         if (value == null || value is! Map) continue;
-        list.add(BtmTask.fromMap(value));
+        try {
+          list.add(BackgroundTaskInfo.fromMap(value));
+        } on HandleNotFoundException catch (e) {
+          print("Handle not found for $value exception: $e");
+        }
       }
       return list;
     } on Exception catch (e) {
@@ -71,17 +75,17 @@ class BackgroundTaskCache implements BackgroundTaskCacheInterface {
   }
 
   @override
-  FutureOr<List<BtmTask>> getTasksByTag(String tag) {
-    List<BtmTask> list = [];
+  FutureOr<List<BackgroundTaskInfo>> getTasksByTag(String tag) {
+    List<BackgroundTaskInfo> list = [];
     for (var element in box.values) {
       if (element == null || element is! Map<String, dynamic>) continue;
-      list.add(BtmTask.fromMap(element));
+      list.add(BackgroundTaskInfo.fromMap(element));
     }
     return list;
   }
 
   @override
-  FutureOr<void> put(BtmTask task) async {
+  FutureOr<void> put(BackgroundTaskInfo task) async {
     try {
       debugPrint("BackgroundTaskCache put task $task");
       final map = task.toMap();
@@ -112,10 +116,10 @@ class BackgroundTaskCache implements BackgroundTaskCacheInterface {
 
 abstract class BackgroundTaskCacheInterface {
   FutureOr<void> init();
-  FutureOr<void> put(BtmTask task);
-  FutureOr<BtmTask?> get(String taskId);
-  FutureOr<List<BtmTask>> getTasks(List<String> taskId);
-  FutureOr<List<BtmTask>> getTasksByTag(String tag);
+  FutureOr<void> put(BackgroundTaskInfo task);
+  FutureOr<BackgroundTaskInfo?> get(String taskId);
+  FutureOr<List<BackgroundTaskInfo>> getTasks(List<String> taskId);
+  FutureOr<List<BackgroundTaskInfo>> getTasksByTag(String tag);
   FutureOr<void> remove(String taskId);
   FutureOr<void> clear();
 }

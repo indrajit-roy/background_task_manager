@@ -5,15 +5,13 @@ import android.content.res.AssetManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.work.CoroutineWorker
-import androidx.work.Data
-import androidx.work.WorkerParameters
-import androidx.work.workDataOf
+import androidx.work.*
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.embedding.engine.loader.FlutterLoader
 import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.FlutterCallbackInformation
@@ -23,15 +21,17 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 
-class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), EventChannel.StreamHandler {
     private val TAG = "BtmWorker"
 
     private var backgroundFlutterEngine: FlutterEngine? = null
     private val isCallbackDispatcherReady = AtomicBoolean(false)
     private var backgroundChannel: MethodChannel? = null
+    private var backgroundEventChannel: EventChannel? = null
     private val methodCallHandler = MethodCallHandler()
     private val completer = CompletableDeferred<Result>()
     private val flutterEngineCompleter = CompletableDeferred<Unit>()
+    private var events: EventChannel.EventSink? = null
 
     companion object {
         fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
@@ -98,20 +98,29 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                 "sendEvent" -> {
                     Log.d(TAG, "onMethodCall: sendEvent ${call.arguments} of type ${call.arguments.javaClass}")
                     val progress = call.arguments as HashMap<*, *>
+                    events?.success(progress)
                     val dataBuilder = Data.Builder()
                     progress.entries.forEach {
                         addFieldToData(dataBuilder, it)
                     }
                     setProgressAsync(dataBuilder.build())
                 }
+                "setForegroundAsync" -> {
+                    Log.d(TAG, "onMethodCall: setForegroundAsync ${call.arguments} of type ${call.arguments.javaClass}")
+                    val progress = call.arguments as HashMap<*, *>
+                    val dataBuilder = Data.Builder()
+
+                    // TODO: 19-01-2022 Add support for dart callback to set the worker to foreground
+                }
             }
         }
-
     }
 
-    private fun initializeMethodChannel(isolate: BinaryMessenger) {
+    private fun initializePlatformChannels(isolate: BinaryMessenger) {
         backgroundChannel = MethodChannel(isolate, "background_task_manager_worker_method_channel")
-        backgroundChannel!!.setMethodCallHandler(methodCallHandler)
+        backgroundChannel?.setMethodCallHandler(methodCallHandler)
+        backgroundEventChannel = EventChannel(isolate, "taskEventChannel#$id")
+        backgroundEventChannel?.setStreamHandler(this)
     }
 
     override suspend fun doWork(): Result {
@@ -184,7 +193,7 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                     val flutterCallback =
                         FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
                     val executor: DartExecutor = backgroundFlutterEngine!!.dartExecutor
-                    initializeMethodChannel(executor)
+                    initializePlatformChannels(executor)
                     val dartCallback =
                         DartExecutor.DartCallback(assets, appBundlePath, flutterCallback)
                     executor.executeDartCallback(dartCallback)
@@ -226,5 +235,13 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                     )
                 )
         }
+    }
+
+    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+        this.events = events
+    }
+
+    override fun onCancel(arguments: Any?) {
+        TODO("Not yet implemented")
     }
 }

@@ -1,3 +1,4 @@
+import 'package:background_task_manager/interfaces/background_task_i.dart';
 
 /// Representation of a data field that can be passed to the background handle
 ///
@@ -134,3 +135,14 @@ class BooleanListDataField extends BackgroundDataField<List<bool>> {
   @override
   String get platformKey => "List<bool>";
 }
+
+//! Cant add because Worker does not support sending Maps in workData
+// class MapDataField extends BackgroundDataField<Map<String, BackgroundDataField<Object>>> {
+//   @override
+//   final Map<String, BackgroundDataField<Object>> value;
+//   MapDataField({
+//     required this.value,
+//   }) : super();
+//   @override
+//   String get platformKey => "Map<String, BackgroundDataField<Object>>";
+// }

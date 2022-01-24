@@ -29,7 +29,12 @@ void _callbackDispatcher() {
       case "executeCallback":
         final argsMap = (call.arguments as Map);
         final CallbackHandle handle = CallbackHandle.fromRawHandle(argsMap["taskHandle"]);
-        final Function? closure = PluginUtilities.getCallbackFromHandle(handle);
+        BackgroundTask? closure;
+        try {
+          closure = PluginUtilities.getCallbackFromHandle(handle) as BackgroundTask?;
+        } on Error catch (e) {
+          print("closure is of type ${closure.runtimeType}. Error $e");
+        }
         if (closure == null) {
           debugPrint('Fatal: could not find user callback');
           _bgMethodChannel.invokeMethod("failure");
@@ -37,9 +42,10 @@ void _callbackDispatcher() {
         }
         try {
           print("_callbackDispatcher argsMap : $argsMap");
-          await closure(argsMap["args"]);
+          final result = await closure(argsMap["args"]);
+          print("_callbackDispatcher result : $result");
           await Future.delayed(const Duration(milliseconds: 200));
-          return {"result": StringDataField(value: "success").toMap()};
+          return result?.toRawMap();
         } catch (e) {
           await Future.delayed(const Duration(milliseconds: 200));
           throw {"result": StringDataField(value: "Task could not be executed. $e").toMap()};
@@ -75,47 +81,52 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   StreamSubscription? _resultStreamSubscription;
 
   final cache = BackgroundTaskCache();
+  final taskStreamMap = <String, BehaviorSubject<BackgroundEvent>>{};
 
-  Stream get _progressStream => _internalProgressEventStream.stream;
+  Stream get _progressStream {
+    //* Initialize progress Stream if not already initialized
+    _progressEventStream ??= _progressEventChannel.receiveBroadcastStream();
+    _progressStreamSubscription ??= _progressEventStream?.listen((event) {
+      _internalProgressEventStream.add(event);
+    });
+    return _internalProgressEventStream.stream;
+  }
+
   Stream get _resultStream => _internalResultEventStream.stream;
 
-  Stream<BackgroundEvent> getEventStreamFor(String taskId) => Rx.merge<BackgroundEvent>([getProgressStreamFor(taskId), getResultStreamFor(taskId)]);
-
   @override
-  Stream<BackgroundEvent> getProgressStreamFor(String taskId) => _progressStream.where((event) {
-        debugPrint("getEventStreamFor, raw event=$event");
-        return event["taskId"] == taskId;
-      }).map<BackgroundEvent>((event) => BackgroundEvent.fromMap(event));
-
-  @override
-  Stream<BackgroundEvent> getResultStreamFor(String taskId) => _resultStream.where((event) {
-        debugPrint("getResultStreamFor, raw event=$event");
-        return event["taskId"] == taskId;
-      }).map<BackgroundEvent>((event) => BackgroundEvent.fromMap(event));
+  Stream<BackgroundEvent> getEventStreamForTask(String id) {
+    return taskStreamMap[id] ??= BehaviorSubject()
+      ..addStream(Rx.merge([_progressStream, _resultStream]).where((event) => event["taskId"] == id).map((event) => BackgroundEvent.fromMap(event)));
+  }
 
   @override
   Stream<BackgroundEvent> getEventStreamForTag(String tag) =>
       Rx.merge([_progressStream, _resultStream]).map((event) => BackgroundEvent.fromMap(event)).where((event) => event.tag == tag);
 
   @override
-  Future<void> executeTask(BtmTask task) async {
+  Future<BackgroundTaskInfo> executeTask(BackgroundTask taskCallback, {PlatformArguments args, String? tag}) async {
     try {
-      debugPrint("executeTask task $task");
       if (!_startedInitialization) {
         throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
       }
 
       if (!initCompletable.isCompleted) await initCompletable.future;
       if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
-      final result = await _methodChannel.invokeMethod("executeTask", {
-        "taskId": task.taskId,
-        "tag": task.tag,
-        "callbackHandle": _callbackDispatcher.toRawHandle,
-        "taskHandle": task.handle.toRawHandle,
-        "args": task.args?.toRawMap()
-      });
-      await cache.put(task);
+      final result = await _methodChannel.invokeMethod("executeTask",
+          {"tag": tag, "callbackHandle": _callbackDispatcher.toRawHandle, "taskHandle": taskCallback.toRawHandle, "args": args?.toRawMap()});
+      BackgroundTaskInfo? task;
+      if (result is Map) {
+        task = BackgroundTaskInfo.fromMap(result
+          ..addEntries([
+            MapEntry("handle", taskCallback.toRawHandle),
+            MapEntry("args", args?.toRawMap()),
+          ]));
+        await cache.put(task);
+      }
       debugPrint("executeTask success $result");
+      if (task == null) throw Exception("Task is Null. Something went wrong. Platform result : $result, task : $task");
+      return task;
     } on Exception catch (e) {
       debugPrint("executeTask Exception $e");
       rethrow;
@@ -126,7 +137,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   }
 
   @override
-  Future<List<BtmTask>> getTasksWithStatus({required List<BtmTaskStatus> status}) async {
+  Future<List<BackgroundTaskInfo>> getTasksWithStatus({required List<BtmTaskStatus> status}) async {
     try {
       debugPrint("getTasksWithStatus start $status");
       if (!_startedInitialization) {
@@ -154,18 +165,18 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
     try {
       debugPrint("BackgroundTaskManager init start");
       _isInitialized = false;
-      final initValue = await _methodChannel.invokeMethod("initialize");
-      //* Initialize progress Stream
-      _progressEventStream ??= _progressEventChannel.receiveBroadcastStream();
-      _progressStreamSubscription = _progressEventStream?.listen((event) {
-        _internalProgressEventStream.add(event);
-      });
       //* Initialize result Stream
       _resultEventStream ??= _resultEventChannel.receiveBroadcastStream();
       _resultStreamSubscription = _resultEventStream?.listen((event) {
+        print("Result Stream on init : $event");
+        print("Result Stream on init, Background Event : ${BackgroundEvent.fromMap(event)}");
         _internalResultEventStream.add(event);
       });
-      _isInitialized = initValue;
+      final initValue = await _methodChannel.invokeMethod("initialize");
+      if (initValue is bool) {
+        _isInitialized = initValue;
+      }
+      if (_isInitialized != true) throw Exception("Failed");
       final appDocDir = await getApplicationDocumentsDirectory();
       Hive.init(appDocDir.path);
       await cache.init();
@@ -189,7 +200,40 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
     _resultStreamSubscription?.cancel();
     _internalProgressEventStream.close();
     _internalResultEventStream.close();
+    for (var element in taskStreamMap.values) {
+      element.close();
+    }
+    _progressEventStream = null;
+    _resultEventStream = null;
     _progressStreamSubscription = null;
     _resultStreamSubscription = null;
+    _isInitialized = false;
+  }
+
+  @override
+  Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments? args, String? tag}) {
+    // TODO: implement enqueueUniqueTask
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<BackgroundTaskInfo>> getTasksWithTag(String tag) async {
+    if (!_startedInitialization) {
+      throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
+    }
+    if (!initCompletable.isCompleted) await initCompletable.future;
+    if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
+    final tasksWithTag = <BackgroundTaskInfo>[];
+    final tasks = await _methodChannel.invokeMethod<List>("getTasksWithTag", {"tag": tag});
+    if (tasks is List) {
+      final idList = <String>[];
+      for (var e in tasks) {
+        if (e is! Map) continue;
+        final s = e["taskId"];
+        if (s is String) idList.add(s);
+      }
+      return await cache.getTasks(idList);
+    }
+    return tasksWithTag;
   }
 }

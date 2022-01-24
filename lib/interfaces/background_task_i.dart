@@ -8,26 +8,23 @@ import 'package:background_task_manager/extensions/background_extensions.dart';
 
 import '../models/background_data_field.dart';
 
-typedef BackgroundTask = Future<void> Function(Object? message);
+typedef BackgroundTask = Future<PlatformArguments> Function(Object? message);
 typedef PlatformArguments = Map<String, BackgroundDataField>?;
 // ignore: constant_identifier_names
 enum BtmTaskStatus { RUNNING, ENQUEUED, BLOCKED, CANCELLED, FAILED, SUCCEEDED }
 
 abstract class BackgroundTaskInterface {
-  // Stream get progressStream;
-  // Stream get resultStream;
-  Stream<BackgroundEvent> getProgressStreamFor(String taskId);
-  Stream<BackgroundEvent> getResultStreamFor(String taskId);
-  Stream<BackgroundEvent> getEventStreamForTag(String tag);
-
   Future<void> init();
+  Stream<BackgroundEvent> getEventStreamForTask(String id);
+  Stream<BackgroundEvent> getEventStreamForTag(String tag);
+  Future<List<BackgroundTaskInfo>> getTasksWithStatus({required List<BtmTaskStatus> status});
+  Future<BackgroundTaskInfo> executeTask(BackgroundTask taskCallback, {PlatformArguments args, String? tag});
+  Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments args, String? tag});
+  Future<List<BackgroundTaskInfo>> getTasksWithTag(String tag);
   void dispose();
-
-  Future<List<BtmTask>> getTasksWithStatus({required List<BtmTaskStatus> status});
-  Future<void> executeTask(BtmTask task);
 }
 
-class BtmTask {
+class BackgroundTaskInfo {
   /// You can pass your own unique ```Id``` or one will be generated for you
   final String taskId;
 
@@ -41,7 +38,7 @@ class BtmTask {
   /// These arguments will be passed to the background ```handle```
   final PlatformArguments args;
 
-  BtmTask({this.tag, required this.handle, String? taskId, this.args}) : taskId = (taskId ?? const Uuid().v4());
+  BackgroundTaskInfo({this.tag, required this.handle, required this.taskId, this.args});
 
   @override
   String toString() {
@@ -57,15 +54,15 @@ class BtmTask {
     };
   }
 
-  factory BtmTask.fromMap(Map<dynamic, dynamic> map) {
+  factory BackgroundTaskInfo.fromMap(Map<dynamic, dynamic> map) {
     final taskId = map['taskId'];
     if (taskId == null || taskId is! String) throw Exception("taskId error for $map");
-    final handle = map['handle'] is! int ? null : FunctionExt.fromRawHandle(map['handle']);
-    if (handle == null || handle is! Future<void> Function(Object?)) {
+    final handle = FunctionExt.fromRawHandle(map['handle']);
+    if (handle == null || handle is! BackgroundTask) {
       throw HandleNotFoundException(rawHandle: map['handle'], message: "Handle : $handle");
     }
     debugPrint(" BtmTask.fromMap of $taskId args : ${map['args'].runtimeType}");
-    return BtmTask(
+    return BackgroundTaskInfo(
       taskId: taskId,
       tag: map['tag'] is! String? ? null : map['tag'],
       handle: handle,
@@ -75,7 +72,7 @@ class BtmTask {
 
   String toJson() => json.encode(toMap());
 
-  factory BtmTask.fromJson(String source) => BtmTask.fromMap(json.decode(source));
+  factory BackgroundTaskInfo.fromJson(String source) => BackgroundTaskInfo.fromMap(json.decode(source));
 }
 
 class HandleNotFoundException extends Error {
