@@ -123,6 +123,31 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     result.error("", "An Exception occurred. Task could not be Queued", "$e")
                 }
             }
+            "getTasksWithUniqueWorkName" -> {
+                try {
+                    if (!manager.isInitialized) throw Exception("Background Task Manager is not initialized. Please call BackgroundTaskManager.singleton.init()")
+                    CoroutineScope(Dispatchers.Main).launch(Dispatchers.Default) {
+                        try {
+                            val argsMap = call.arguments as Map<*, *>
+                            val uniqueWorkName = argsMap["uniqueWorkName"] as String?
+                            if (uniqueWorkName == null)
+                                throw Exception("The uniqueWorkName passed was $uniqueWorkName")
+                            val tasks = manager.getTasksWithUniqueWorkName(uniqueWorkName)
+                            withContext(Dispatchers.Main) {
+                                result.success(tasks)
+                            }
+                        } catch (e: Exception) {
+                            throw e;
+                        } catch (e: Error) {
+                            throw e;
+                        }
+                    }
+                } catch (e: Exception) {
+                    result.error("", "An Exception occurred. Could not get tasks for tag.", "$e")
+                } catch (e: Error) {
+                    result.error("", "An Error occurred. Could not get tasks for tag.", "$e")
+                }
+            }
             "getTasksWithTag" -> {
                 try {
                     if (!manager.isInitialized) throw Exception("Background Task Manager is not initialized. Please call BackgroundTaskManager.singleton.init()")
@@ -146,6 +171,35 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     result.error("", "An Exception occurred. Could not get tasks for tag.", "$e")
                 } catch (e: Error) {
                     result.error("", "An Error occurred. Could not get tasks for tag.", "$e")
+                }
+            }
+            "enqueueUniqueTask" -> {
+                try {
+                    if (!manager.isInitialized) throw Exception("Background Task Manager is not initialized. Please call BackgroundTaskManager.singleton.init()")
+                    val argsMap = call.arguments as Map<*, *>
+                    val tag = argsMap["tag"] as String?
+                    val uniqueWorkName = argsMap["uniqueWorkName"] as String?
+                    val callbackHandle: Long? = argsMap["callbackHandle"] as Long?
+                    val taskHandle: Long? = argsMap["taskHandle"] as Long?
+                    val args: HashMap<*, *> = argsMap["args"] as HashMap<*, *>
+                    if (callbackHandle == null || taskHandle == null || uniqueWorkName == null)
+                        throw Exception("Callback handle : $callbackHandle or Task Handle : $taskHandle is null. Please pass a top level or a static function to callbackHandle / taskhandle.")
+                    CoroutineScope(Dispatchers.Main).launch(Dispatchers.Default) {
+                        try {
+                            val workId = manager.enqueueUniqueTask(callbackHandle, taskHandle, uniqueWorkName, tag, args)
+                            withContext(Dispatchers.Main) {
+                                result.success(hashMapOf("taskId" to workId, "tag" to tag))
+                            }
+                        } catch (e: Exception) {
+                            throw e;
+                        } catch (e: Error) {
+                            throw e;
+                        }
+                    }
+                } catch (e: Error) {
+                    result.error("", "An Error occurred. Task could not be Queued", "$e")
+                } catch (e: Exception) {
+                    result.error("", "An Exception occurred. Task could not be Queued", "$e")
                 }
             }
             else -> result.notImplemented()

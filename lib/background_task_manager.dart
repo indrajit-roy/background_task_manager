@@ -211,9 +211,40 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   }
 
   @override
-  Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments? args, String? tag}) {
-    // TODO: implement enqueueUniqueTask
-    throw UnimplementedError();
+  Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments? args, String? tag}) async {
+    try {
+      if (!_startedInitialization) {
+        throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
+      }
+
+      if (!initCompletable.isCompleted) await initCompletable.future;
+      if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
+      final result = await _methodChannel.invokeMethod("enqueueUniqueTask", {
+        "tag": tag,
+        "callbackHandle": _callbackDispatcher.toRawHandle,
+        "taskHandle": taskCallback.toRawHandle,
+        "uniqueWorkName": uniqueWorkName,
+        "args": args?.toRawMap()
+      });
+      BackgroundTaskInfo? task;
+      if (result is Map) {
+        task = BackgroundTaskInfo.fromMap(result
+          ..addEntries([
+            MapEntry("handle", taskCallback.toRawHandle),
+            MapEntry("args", args?.toRawMap()),
+          ]));
+        await cache.put(task);
+      }
+      debugPrint("executeTask success $result");
+      if (task == null) throw Exception("Task is Null. Something went wrong. Platform result : $result, task : $task");
+      return task;
+    } on Exception catch (e) {
+      debugPrint("executeTask Exception $e");
+      rethrow;
+    } on Error catch (e) {
+      debugPrint("executeTask Error $e");
+      rethrow;
+    }
   }
 
   @override
@@ -225,6 +256,27 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
     if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
     final tasksWithTag = <BackgroundTaskInfo>[];
     final tasks = await _methodChannel.invokeMethod<List>("getTasksWithTag", {"tag": tag});
+    if (tasks is List) {
+      final idList = <String>[];
+      for (var e in tasks) {
+        if (e is! Map) continue;
+        final s = e["taskId"];
+        if (s is String) idList.add(s);
+      }
+      return await cache.getTasks(idList);
+    }
+    return tasksWithTag;
+  }
+
+  @override
+  Future<List<BackgroundTaskInfo>> getTasksWithUniqueWorkName(String uniqueWorkName) async {
+    if (!_startedInitialization) {
+      throw Exception("BackgroundTaskManager initialization not initiated. Please call BackgroundTaskManager.singleton.init()");
+    }
+    if (!initCompletable.isCompleted) await initCompletable.future;
+    if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
+    final tasksWithTag = <BackgroundTaskInfo>[];
+    final tasks = await _methodChannel.invokeMethod<List>("getTasksWithUniqueWorkName", {"uniqueWorkName": uniqueWorkName});
     if (tasks is List) {
       final idList = <String>[];
       for (var e in tasks) {

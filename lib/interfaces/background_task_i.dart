@@ -14,14 +14,17 @@ typedef PlatformArguments = Map<String, BackgroundDataField>?;
 enum BtmTaskStatus { RUNNING, ENQUEUED, BLOCKED, CANCELLED, FAILED, SUCCEEDED }
 
 abstract class BackgroundTaskInterface {
-  Future<void> init();
   Stream<BackgroundEvent> getEventStreamForTask(String id);
   Stream<BackgroundEvent> getEventStreamForTag(String tag);
+
+  Future<void> init();
+  void dispose();
+  
   Future<List<BackgroundTaskInfo>> getTasksWithStatus({required List<BtmTaskStatus> status});
   Future<BackgroundTaskInfo> executeTask(BackgroundTask taskCallback, {PlatformArguments args, String? tag});
   Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments args, String? tag});
   Future<List<BackgroundTaskInfo>> getTasksWithTag(String tag);
-  void dispose();
+  Future<List<BackgroundTaskInfo>> getTasksWithUniqueWorkName(String uniqueWorkName);
 }
 
 class BackgroundTaskInfo {

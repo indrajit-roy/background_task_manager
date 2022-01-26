@@ -64,8 +64,44 @@ class BackgroundTaskManager {
         }
     }
 
+    suspend fun enqueueUniqueTask(
+        callbackHandle: Long,
+        taskHandle: Long,
+        uniqueWorkName: String,
+        tag: String? = null,
+        args: HashMap<*, *>? = null
+    ): String {
+        try {
+            val dataBuilder = Data.Builder()
+            args?.entries?.forEach {
+                BackgroundTaskManagerWorker.addFieldToData(dataBuilder, it)
+            }
+            val oneTimeWorkRequestBuilder = OneTimeWorkRequestBuilder<BackgroundTaskManagerWorker>().setInputData(
+                dataBuilder.putLong("callbackHandle", callbackHandle).putLong("taskHandle", taskHandle)
+                    .build()
+            )
+            if (tag != null)
+                oneTimeWorkRequestBuilder.addTag(tag)
+
+            val oneTimeWorkRequest = oneTimeWorkRequestBuilder.build()
+            workManager.enqueueUniqueWork(uniqueWorkName, ExistingWorkPolicy.APPEND, oneTimeWorkRequest).await()
+            BackgroundPreferences.setTaskInfo(oneTimeWorkRequest.id.toString(), oneTimeWorkRequest.id.toString(), tag = tag)
+            return "${oneTimeWorkRequest.id}"
+        } catch (e: Exception) {
+            throw e;
+        } catch (e: Error) {
+            throw e;
+        }
+    }
+
     suspend fun getTasksWithTag(tag: String): List<HashMap<String, Any?>?> {
         val tasks = workManager.getWorkInfosByTag(tag).await()
+        return tasks.map {
+            getBackgroundEventFromWorkInfo(it)
+        }.toList()
+    }
+    suspend fun getTasksWithUniqueWorkName(uniqueWorkName: String): List<HashMap<String, Any?>?> {
+        val tasks = workManager.getWorkInfosForUniqueWork(uniqueWorkName).await()
         return tasks.map {
             getBackgroundEventFromWorkInfo(it)
         }.toList()

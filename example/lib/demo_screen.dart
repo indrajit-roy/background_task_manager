@@ -116,7 +116,7 @@ class TasksByTagState extends State<TasksByTag> {
   var tasks = <BackgroundTaskInfo>[];
 
   init() async {
-    final tasks = await BackgroundTaskManager.singleton.getTasksWithTag(widget.tag);
+    final tasks = await BackgroundTaskManager.singleton.getTasksWithUniqueWorkName(widget.tag);
     debugPrint("tagged tasks for ${widget.tag} : $tasks");
     if (tasks.isNotEmpty) {
       setState(() {
@@ -150,10 +150,14 @@ class TasksByTagState extends State<TasksByTag> {
           ),
           ElevatedButton(
               onPressed: () async {
-                final task =
-                    await BackgroundTaskManager.singleton.executeTask(handle, args: {"length": IntegerDataField(value: 9000)}, tag: widget.tag);
-                await Future.delayed(const Duration(milliseconds: 1500));
-                init();
+                final task = await BackgroundTaskManager.singleton
+                    .enqueueUniqueTask(handle, widget.tag, args: {"length": IntegerDataField(value: 20)}, tag: widget.tag);
+                tasks.add(task);
+                setState(() {
+                  
+                });
+                // await Future.delayed(const Duration(milliseconds: 1500));
+                // init();
               },
               child: Text("Queue with ${widget.tag}"))
         ],
