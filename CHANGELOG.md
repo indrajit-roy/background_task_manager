@@ -1,3 +1,3 @@
-## 0.0.1
+## 0.0.1-beta
 
-* TODO: Describe initial release.
+* This is the first release with android support. The idea is to be able to test in production environment.

@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:background_task_manager/models/background_event.dart';
 import 'package:flutter/widgets.dart';
-import 'package:uuid/uuid.dart';
 
 import 'package:background_task_manager/extensions/background_extensions.dart';
 
@@ -19,7 +18,7 @@ abstract class BackgroundTaskInterface {
 
   Future<void> init();
   void dispose();
-  
+
   Future<List<BackgroundTaskInfo>> getTasksWithStatus({required List<BtmTaskStatus> status});
   Future<BackgroundTaskInfo> executeTask(BackgroundTask taskCallback, {PlatformArguments args, String? tag});
   Future<BackgroundTaskInfo> enqueueUniqueTask(BackgroundTask taskCallback, String uniqueWorkName, {PlatformArguments args, String? tag});
