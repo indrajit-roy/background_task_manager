@@ -1,9 +1,11 @@
 package com.thecodedimension.background_task_manager
 
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.work.*
 
 class BackgroundTaskManager {
+    private val TAG = "BackgroundTaskManager";
     private lateinit var workManager: WorkManager
     var workProgressLiveData: LiveData<MutableList<WorkInfo>>? = null
     var workResultLiveData: LiveData<MutableList<WorkInfo>>? = null
@@ -44,7 +46,12 @@ class BackgroundTaskManager {
         try {
             val dataBuilder = Data.Builder()
             args?.entries?.forEach {
+                Log.d(TAG, "addFieldToData: ${(it.value as HashMap<*, *>)["value"]?.javaClass}")
+                if ((it.value as HashMap<*, *>)["value"] is List<*>) {
+                    Log.d(TAG, "addFieldToData: ${((it.value as HashMap<*, *>)["value"] as List<*>)[0]?.javaClass}")
+                }
                 BackgroundTaskManagerWorker.addFieldToData(dataBuilder, it)
+
             }
             val oneTimeWorkRequestBuilder = OneTimeWorkRequestBuilder<BackgroundTaskManagerWorker>().setInputData(
                 dataBuilder.putLong("callbackHandle", callbackHandle).putLong("taskHandle", taskHandle)
@@ -100,6 +107,7 @@ class BackgroundTaskManager {
             getBackgroundEventFromWorkInfo(it)
         }.toList()
     }
+
     suspend fun getTasksWithUniqueWorkName(uniqueWorkName: String): List<HashMap<String, Any?>?> {
         val tasks = workManager.getWorkInfosForUniqueWork(uniqueWorkName).await()
         return tasks.map {
@@ -110,11 +118,16 @@ class BackgroundTaskManager {
     companion object {
         fun getBackgroundEventFromWorkInfo(info: WorkInfo): HashMap<String, Any?>? {
             val progress = if (workProgressStates.any { it == info.state }) info.progress.keyValueMap else info.outputData.keyValueMap
+
             if (progress.isNotEmpty()) {
                 val taskInfo = BackgroundPreferences.getTaskInfo(info.id.toString()) ?: return null
                 val hashMap = hashMapOf<String, Any?>()
                 progress.entries.forEach { entry ->
-                    hashMap[entry.key] = entry.value
+                    if (entry.value is Array<*>) {
+                        hashMap[entry.key] = (entry.value as Array<*>).toList()
+                    } else {
+                        hashMap[entry.key] = entry.value
+                    }
                 }
                 return hashMapOf(
                     "taskId" to "${info.id}",

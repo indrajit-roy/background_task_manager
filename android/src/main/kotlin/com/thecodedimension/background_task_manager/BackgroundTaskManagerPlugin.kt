@@ -102,9 +102,10 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     val tag = argsMap["tag"] as String?
                     val callbackHandle: Long? = argsMap["callbackHandle"] as Long?
                     val taskHandle: Long? = argsMap["taskHandle"] as Long?
-                    val args: HashMap<*, *> = argsMap["args"] as HashMap<*, *>
+                    val args: HashMap<*, *>? = argsMap["args"] as HashMap<*, *>?
                     if (callbackHandle == null || taskHandle == null)
                         throw Exception("Callback handle : $callbackHandle or Task Handle : $taskHandle is null. Please pass a top level or a static function to callbackHandle / taskhandle.")
+                    Log.d(TAG, "executeTask onMethodCall: args : $args")
                     CoroutineScope(Dispatchers.Main).launch(Dispatchers.Default) {
                         try {
                             val workId = manager.executeTask(callbackHandle, taskHandle, tag, args)
@@ -181,9 +182,10 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     val uniqueWorkName = argsMap["uniqueWorkName"] as String?
                     val callbackHandle: Long? = argsMap["callbackHandle"] as Long?
                     val taskHandle: Long? = argsMap["taskHandle"] as Long?
-                    val args: HashMap<*, *> = argsMap["args"] as HashMap<*, *>
+                    val args: HashMap<*, *>? = argsMap["args"] as HashMap<*, *>?
                     if (callbackHandle == null || taskHandle == null || uniqueWorkName == null)
                         throw Exception("Callback handle : $callbackHandle or Task Handle : $taskHandle is null. Please pass a top level or a static function to callbackHandle / taskhandle.")
+                    Log.d(TAG, "enqueueUniqueTask onMethodCall: uniqueWorkName : $uniqueWorkName, args : $args")
                     CoroutineScope(Dispatchers.Main).launch(Dispatchers.Default) {
                         try {
                             val workId = manager.enqueueUniqueTask(callbackHandle, taskHandle, uniqueWorkName, tag, args)

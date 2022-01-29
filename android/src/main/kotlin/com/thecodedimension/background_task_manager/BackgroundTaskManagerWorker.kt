@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 
 class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), EventChannel.StreamHandler {
-    private val TAG = "BtmWorker"
 
     private var backgroundFlutterEngine: FlutterEngine? = null
     private val isCallbackDispatcherReady = AtomicBoolean(false)
@@ -34,7 +33,9 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
     private var events: EventChannel.EventSink? = null
 
     companion object {
+        private val TAG = "BtmWorker"
         fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
+            Log.d(TAG, "addFieldToData: ${entry.value.javaClass}")
             if (entry.value is HashMap<*, *>) {
                 return when ((entry.value as HashMap<*, *>)["platformKey"]) {
                     "String" -> {
@@ -54,6 +55,10 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                         dataBuilder
                     }
                     "List<String>" -> {
+                        Log.d(TAG, "addFieldToData: ${(entry.value as HashMap<*, *>)["value"]?.javaClass}")
+                        if ((entry.value as HashMap<*, *>)["value"] is List<*>) {
+                            Log.d(TAG, "addFieldToData: ${((entry.value as HashMap<*, *>)["value"] as List<*>)[0]?.javaClass}")
+                        }
                         dataBuilder.putStringArray(
                             entry.key as String,
                             ((entry.value as HashMap<*, *>)["value"] as List<String>).toTypedArray()
@@ -101,6 +106,7 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                     events?.success(progress)
                     val dataBuilder = Data.Builder()
                     progress.entries.forEach {
+                    Log.d(TAG, "onMethodCall: sendEvent entry key=${it.key} value=${it.value}")
                         addFieldToData(dataBuilder, it)
                     }
                     setProgressAsync(dataBuilder.build())
@@ -132,7 +138,12 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
         Log.d(TAG, "doWork: worker input data : $args")
         args.entries.forEach {
             if (it.key == "callbackHandle" || it.key == "taskHandle") return@forEach
-            argsHashMap[it.key] = it.value
+            Log.d(TAG, "doWork: list input debug ${it.value.javaClass}, is array : ${it.value is Array<*>}, ")
+            if (it.value is Array<*>) {
+                argsHashMap[it.key] = (it.value as Array<*>).toList()
+            } else {
+                argsHashMap[it.key] = it.value
+            }
         }
         Log.d(TAG, "doWork: args HashMap : $argsHashMap")
         if (backgroundFlutterEngine != null) {
@@ -152,7 +163,12 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
         }
         Log.d(TAG, "doWork: Attempt to call callback")
         withContext(Dispatchers.Main) {
-            backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to argsHashMap), resultHandler)
+            try {
+                backgroundChannel?.invokeMethod("executeCallback", hashMapOf("taskHandle" to taskHandle, "args" to argsHashMap), resultHandler)
+            } catch (e: Exception) {
+                Log.d(TAG, "doWork: exception : taskHandle : $taskHandle, args : $argsHashMap")
+                completer.complete(Result.failure())
+            }
         }
         val output = completer.await()
         withContext(Dispatchers.Main) {

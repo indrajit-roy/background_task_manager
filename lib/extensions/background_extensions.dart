@@ -4,6 +4,7 @@ import '../background_task_manager.dart';
 
 extension BackgroundDataFieldMapExt on Map<String, BackgroundDataField> {
   Map<String, Map> toRawMap() => map<String, Map<String, dynamic>>((key, value) => MapEntry(key, value.toMap()));
+
   static Map<String, BackgroundDataField> fromMap(Map<dynamic, dynamic> map) =>
       map.map<String, BackgroundDataField>((key, value) => MapEntry(key, BackgroundDataField.fromMap(value)));
 }

@@ -63,11 +63,14 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
       : _internalProgressEventStream = StreamController.broadcast(),
         _internalResultEventStream = StreamController.broadcast();
   static BackgroundTaskManager? _instance;
+
   static BackgroundTaskManager get singleton => _instance ??= BackgroundTaskManager._();
 
   Completer<bool> initCompletable = Completer<bool>();
   bool? _isInitialized;
+
   bool get isInitialized => initCompletable.isCompleted && _isInitialized == true;
+
   bool get _startedInitialization => _isInitialized != null;
 
   Map<String, String> taskToType = {};
@@ -164,7 +167,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   Future<void> init() async {
     try {
       debugPrint("BackgroundTaskManager init start");
-      _isInitialized = false;
+      if (isInitialized == true) return;
       //* Initialize result Stream
       _resultEventStream ??= _resultEventChannel.receiveBroadcastStream();
       _resultStreamSubscription = _resultEventStream?.listen((event) {
@@ -207,6 +210,7 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
     _resultEventStream = null;
     _progressStreamSubscription = null;
     _resultStreamSubscription = null;
+    initCompletable = Completer<bool>();
     _isInitialized = false;
   }
 
