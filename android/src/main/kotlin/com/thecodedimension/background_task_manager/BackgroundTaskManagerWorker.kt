@@ -34,6 +34,7 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
 
     companion object {
         private val TAG = "BtmWorker"
+
         fun addFieldToData(dataBuilder: Data.Builder, entry: MutableMap.MutableEntry<out Any, out Any>): Data.Builder {
             Log.d(TAG, "addFieldToData: ${entry.value.javaClass}")
             if (entry.value is HashMap<*, *>) {
@@ -106,7 +107,7 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
                     events?.success(progress)
                     val dataBuilder = Data.Builder()
                     progress.entries.forEach {
-                    Log.d(TAG, "onMethodCall: sendEvent entry key=${it.key} value=${it.value}")
+                        Log.d(TAG, "onMethodCall: sendEvent entry key=${it.key} value=${it.value}")
                         addFieldToData(dataBuilder, it)
                     }
                     setProgressAsync(dataBuilder.build())
@@ -130,6 +131,7 @@ class BackgroundTaskManagerWorker(context: Context, params: WorkerParameters) : 
     }
 
     override suspend fun doWork(): Result {
+        Log.d(TAG, "doWork: start")
         val shellArgs: FlutterShellArgs? = null
         val callbackHandle = inputData.getLong("callbackHandle", (-1).toLong())
         val taskHandle = inputData.getLong("taskHandle", (-1).toLong())

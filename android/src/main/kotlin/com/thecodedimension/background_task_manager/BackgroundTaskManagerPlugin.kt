@@ -79,7 +79,7 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                 }
             }
             "getTasksByStatus" -> {
-                if (manager.isInitialized) {
+                if (!manager.isInitialized) {
                     result.error("401", "Please call BackgroundTaskManager.singleton.init()", "Background Task Manager is not initialized.")
                     return
                 }
@@ -189,12 +189,15 @@ class BackgroundTaskManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHandl
                     CoroutineScope(Dispatchers.Main).launch(Dispatchers.Default) {
                         try {
                             val workId = manager.enqueueUniqueTask(callbackHandle, taskHandle, uniqueWorkName, tag, args)
+                            Log.d(TAG, "enqueueUniqueTask onMethodCall: workId : $workId")
                             withContext(Dispatchers.Main) {
                                 result.success(hashMapOf("taskId" to workId, "tag" to tag))
                             }
                         } catch (e: Exception) {
+                            Log.d(TAG, "enqueueUniqueTask onMethodCall: exception : $e")
                             throw e;
                         } catch (e: Error) {
+                            Log.d(TAG, "enqueueUniqueTask onMethodCall: error : $e")
                             throw e;
                         }
                     }

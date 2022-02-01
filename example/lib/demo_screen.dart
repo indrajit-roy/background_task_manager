@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:background_task_manager/background_task_manager.dart';
 import 'package:background_task_manager/interfaces/background_task_i.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -150,13 +151,13 @@ class TasksByTagState extends State<TasksByTag> {
           ),
           ElevatedButton(
               onPressed: () async {
-                final task = await BackgroundTaskManager.singleton
-                    .enqueueUniqueTask(handle, widget.tag, args: {"length": IntegerDataField(value: 20)}, tag: widget.tag);
-                tasks.add(task);
-                setState(() {
-                  
-                });
-                // await Future.delayed(const Duration(milliseconds: 1500));
+                final str = await compute((ar) async {
+                  return List.generate(90000, (index) => "$index").reduce((value, element) => "$value$element");
+                }, "");
+                final Map<String, BackgroundDataField<Object>>? args = {"length": IntegerDataField(value: 20), "string": StringDataField(value: str)};
+                 final task = await BackgroundTaskManager.singleton.executeTask(handle, args: args, tag: widget.tag);
+                  tasks.add(task);
+                  setState(() {});
                 // init();
               },
               child: Text("Queue with ${widget.tag}"))

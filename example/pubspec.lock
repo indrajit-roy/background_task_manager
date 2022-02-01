@@ -14,7 +14,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.0.1-beta"
+    version: "0.0.2-beta"
   boolean_selector:
     dependency: transitive
     description:

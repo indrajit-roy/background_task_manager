@@ -1,6 +1,6 @@
 name: background_task_manager
 description: A one stop solution for background tasks in Flutter. With real time communication with the background thread.
-version: 0.0.1-beta
+version: 0.0.2-beta
 homepage: https://github.com/indrajit-roy/background_task_manager
 
 environment:

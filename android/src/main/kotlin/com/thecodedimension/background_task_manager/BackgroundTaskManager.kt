@@ -32,31 +32,37 @@ class BackgroundTaskManager {
         val statusList = statusListInput.map {
             workStateMap[it]
         }
+        Log.d(TAG, "getTasksByStatus: input : $statusListInput")
+        Log.d(TAG, "getTasksByStatus: statusList : $statusList")
         val infos = workManager.getWorkInfos(WorkQuery.Builder.fromStates(statusList.toMutableList()).build()).await()
+        Log.d(TAG, "getTasksByStatus: infos : $infos")
         val taskInfoList: MutableList<HashMap<String, Any?>> = mutableListOf()
         infos.forEach { info ->
             val backgroundEvent = getBackgroundEventFromWorkInfo(info)
             if (backgroundEvent != null)
                 taskInfoList.add(backgroundEvent)
         }
+        Log.d(TAG, "getTasksByStatus: taskInfoList : $taskInfoList")
         return taskInfoList.toList()
     }
 
     suspend fun executeTask(callbackHandle: Long, taskHandle: Long, tag: String? = null, args: HashMap<*, *>? = null): String {
         try {
             val dataBuilder = Data.Builder()
+            val myTotalMemoryBefore = Runtime.getRuntime().totalMemory()
             args?.entries?.forEach {
+            Log.d(TAG, "executeTask: size of args : ${args.size}")
                 Log.d(TAG, "addFieldToData: ${(it.value as HashMap<*, *>)["value"]?.javaClass}")
                 if ((it.value as HashMap<*, *>)["value"] is List<*>) {
                     Log.d(TAG, "addFieldToData: ${((it.value as HashMap<*, *>)["value"] as List<*>)[0]?.javaClass}")
                 }
                 BackgroundTaskManagerWorker.addFieldToData(dataBuilder, it)
-
             }
-            val oneTimeWorkRequestBuilder = OneTimeWorkRequestBuilder<BackgroundTaskManagerWorker>().setInputData(
-                dataBuilder.putLong("callbackHandle", callbackHandle).putLong("taskHandle", taskHandle)
-                    .build()
-            )
+            val data = dataBuilder.putLong("callbackHandle", callbackHandle).putLong("taskHandle", taskHandle)
+                .build()
+            val myTotalMemoryAfter = Runtime.getRuntime().totalMemory()
+            val myHashMapMemory = myTotalMemoryAfter - myTotalMemoryBefore
+            val oneTimeWorkRequestBuilder = OneTimeWorkRequestBuilder<BackgroundTaskManagerWorker>().setInputData(data)
             if (tag != null)
                 oneTimeWorkRequestBuilder.addTag(tag)
 
@@ -79,6 +85,7 @@ class BackgroundTaskManager {
         args: HashMap<*, *>? = null
     ): String {
         try {
+            Log.d(TAG, "enqueueUniqueTask: start")
             val dataBuilder = Data.Builder()
             args?.entries?.forEach {
                 BackgroundTaskManagerWorker.addFieldToData(dataBuilder, it)
@@ -95,8 +102,10 @@ class BackgroundTaskManager {
             BackgroundPreferences.setTaskInfo(oneTimeWorkRequest.id.toString(), oneTimeWorkRequest.id.toString(), tag = tag)
             return "${oneTimeWorkRequest.id}"
         } catch (e: Exception) {
+            Log.d(TAG, "enqueueUniqueTask: exception $e")
             throw e;
         } catch (e: Error) {
+            Log.d(TAG, "enqueueUniqueTask: error $e")
             throw e;
         }
     }

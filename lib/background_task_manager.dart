@@ -46,9 +46,14 @@ void _callbackDispatcher() {
           print("_callbackDispatcher result : $result");
           await Future.delayed(const Duration(milliseconds: 200));
           return result?.toRawMap();
-        } catch (e) {
+        } on Exception catch (e) {
+          debugPrint("_callbackDispatcher exception $e");
           await Future.delayed(const Duration(milliseconds: 200));
-          throw {"result": StringDataField(value: "Task could not be executed. $e").toMap()};
+          throw {"result": StringDataField(value: "Task could not be executed. Exception $e").toMap()};
+        } on Error catch (e) {
+          debugPrint("_callbackDispatcher exception $e");
+          await Future.delayed(const Duration(milliseconds: 200));
+          throw {"result": StringDataField(value: "Task could not be executed. Error $e").toMap()};
         }
       default:
         null;
@@ -148,13 +153,14 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
       }
       if (!initCompletable.isCompleted) await initCompletable.future;
       if (!isInitialized) throw Exception("BackgroundTaskManager is not initialized.");
-      final taskIds = await _methodChannel.invokeMethod<List>("getTasksByStatus", {"status": status.map((e) => e.name).toList()});
-      debugPrint("getTasksWithStatus got $taskIds of type : ${taskIds.runtimeType}");
+      final workInfos = await _methodChannel.invokeMethod<List>("getTasksByStatus", {"status": status.map((e) => e.name).toList()});
+      debugPrint("getTasksWithStatus got $workInfos of type : ${workInfos.runtimeType}");
       final idList = <String>[];
-      taskIds?.forEach((element) {
+      workInfos?.forEach((element) {
         debugPrint("getTasksWithStatus $element type : ${element.runtimeType}");
-        if (element is String) idList.add(element);
+        if (element is Map) idList.add(element["taskId"]);
       });
+      debugPrint("getTasksWithStatus idList : $idList");
       return await cache.getTasks(idList);
     } on Exception catch (e) {
       debugPrint("BackgroundTaskManager getTasksWithStatus exception $e");
@@ -166,8 +172,10 @@ class BackgroundTaskManager implements BackgroundTaskInterface {
   @override
   Future<void> init() async {
     try {
-      debugPrint("BackgroundTaskManager init start");
+      debugPrint("BackgroundTaskManager init start $isInitialized");
       if (isInitialized == true) return;
+      if (_startedInitialization) return;
+      _isInitialized = false;
       //* Initialize result Stream
       _resultEventStream ??= _resultEventChannel.receiveBroadcastStream();
       _resultStreamSubscription = _resultEventStream?.listen((event) {
